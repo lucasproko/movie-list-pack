@@ -1,6 +1,7 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {parseQuery,mapRatings,getMovie}=require('../helpers.ts');
+const {parseQuery,getMovie}=require('../helpers.ts');
+const {mapRatings,getRatings}=require('../ratings/helpers.ts');
 
 test('IMDb URL and remake year are parsed without losing identity',()=>{
  assert.equal(parseQuery(' https://www.imdb.com/title/tt1160419/?ref_=x ').imdbId,'tt1160419');
@@ -20,14 +21,18 @@ test('missing and invalid ratings stay blank; historical audience names still wo
  assert.equal(mapRatings({}).RatingsStatus,'No ratings available');
 });
 function context(handler){return {invocationToken:'test',fetcher:{fetch:async r=>({body:await handler(new URL(r.url))})}};}
-test('a ratings outage preserves movie metadata and reports the failure',async()=>{
+test('a ratings outage leaves the separate metadata result usable',async()=>{
  const calls=[];const ctx=context(async u=>{
-  calls.push(u);if(u.hostname==='api.mdblist.com')throw {statusCode:429};
+  calls.push(u);assert.equal(u.hostname,'api.themoviedb.org');
+  assert.equal(u.searchParams.has('api_key'),false);
   if(u.pathname.endsWith('/find/tt1375666'))return {movie_results:[{id:27205}]};
   return {id:27205,title:'Inception',imdb_id:'tt1375666',release_date:'2010-07-16',runtime:148,credits:{cast:[],crew:[]}};
  });
- const r=await getMovie(ctx,'tt1375666');assert.equal(r.Title,'Inception');assert.equal(r.ImdbId,'tt1375666');assert.equal(r.ImdbRating,undefined);assert.match(r.RatingsStatus,/rate limit/);
- assert.equal(calls.find(u=>u.hostname==='api.mdblist.com').pathname,'/tmdb/movie/27205');
+ const movie=await getMovie(ctx,'tt1375666');
+ const failed=context(async u=>{assert.equal(u.hostname,'api.mdblist.com');throw {statusCode:429};});
+ const scores=await getRatings(failed,movie.ImdbId);
+ assert.equal(movie.Title,'Inception');assert.equal(movie.ImdbId,'tt1375666');assert.equal(scores.ImdbRating,undefined);assert.match(scores.RatingsStatus,/rate limit/);
+ assert.equal(calls.length,2);
 });
 test('an unavailable requested year never silently selects another remake',async()=>{
  const ctx=context(async u=>{
@@ -42,4 +47,24 @@ test('a successful year match and UK streaming alias select the right record',as
   assert.equal(u.pathname,'/3/movie/841');return {id:841,title:'Dune',release_date:'1984-12-14','watch/providers':{results:{GB:{flatrate:[{provider_name:'Example TV'}],link:'https://example.com'}}}};
  });
  const r=await getMovie(ctx,'Dune (1984)','uk');assert.equal(r.Year,1984);assert.equal(r.Stream[0].country,'GB');assert.equal(r.Stream[0].name,'Example TV');
+});
+
+test('each Pack declares exactly its own service and native API-key authentication',()=>{
+ const {pack:details}=require('../pack.ts');const {pack:ratings}=require('../ratings/pack.ts');
+ assert.deepEqual(details.networkDomains,['themoviedb.org']);assert.deepEqual(ratings.networkDomains,['mdblist.com']);
+ assert.equal(details.systemConnectionAuthentication.type,'QueryParamToken');assert.equal(details.systemConnectionAuthentication.paramName,'api_key');
+ assert.equal(ratings.systemConnectionAuthentication.type,'QueryParamToken');assert.equal(ratings.systemConnectionAuthentication.paramName,'apikey');
+});
+test('ratings use the supplied IMDb identity and distinguish movie from show',async()=>{
+ const ctx=context(async u=>{
+  assert.equal(u.pathname,'/imdb/show/tt0903747');assert.equal(u.searchParams.has('apikey'),false);
+  return {title:'Breaking Bad',ids:{imdb:'tt0903747'},ratings:[{source:'popcorn',value:97}]};
+ });
+ const r=await getRatings(ctx,'https://www.imdb.com/title/tt0903747/','show');assert.equal(r.ImdbId,'tt0903747');assert.equal(r.RottenTomatoesAudience,97);
+});
+test('missing IDs do not request data and mismatched results never supply scores',async()=>{
+ const empty=context(async()=>{throw Error('unexpected request');});assert.equal((await getRatings(empty,'')).RatingsStatus,'No IMDb ID');
+ await assert.rejects(()=>getRatings(empty,'Inception'),/IMDb title ID/);
+ const wrong=context(async()=>({ids:{imdb:'tt0087182'},ratings:[{source:'imdb',value:6.2}]}));
+ const r=await getRatings(wrong,'tt1160419');assert.equal(r.ImdbRating,undefined);assert.match(r.RatingsStatus,/different title/);
 });

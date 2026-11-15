@@ -19,7 +19,7 @@ async function tmdb(context: coda.ExecutionContext, path: string, params: Record
   try {
     const response = await context.fetcher.fetch({
       method: "GET",
-      url: coda.withQueryParams(`https://api.themoviedb.org/3/${path}`, { ...params, api_key: `{{tmdbApiKey-${context.invocationToken}}}` }),
+      url: coda.withQueryParams(`https://api.themoviedb.org/3/${path}`, params),
       cacheTtlSecs: 86400,
     });
     return response.body as Data;
@@ -44,51 +44,6 @@ async function resolve(context: coda.ExecutionContext, input: string, type: Medi
   const match = matches.find((item: Data) => [item.title, item.name, item.original_title, item.original_name].some(title => title && normalize(title) === normalize(query.title!))) || matches[0];
   if (!match) throw new coda.UserVisibleError("No matching title found. Try the exact title and year, or an IMDb ID.");
   return match.id as number;
-}
-
-function value(ratings: Data[], sources: string[], maximum: number) {
-  for (const source of sources) {
-    const number = ratings.find(r => r.source === source)?.value;
-    if (typeof number === "number" && Number.isFinite(number) && number >= 0 && number <= maximum) return number;
-  }
-  return undefined;
-}
-
-function sourceUrl(ratings: Data[], sources: string[], host: string) {
-  const path = sources.map(source => ratings.find(r => r.source === source)?.url).find(url => typeof url === "string" && url.length);
-  if (!path) return undefined;
-  if (path.startsWith("/") && !path.startsWith("//")) return `https://${host}${path}`;
-  return path.startsWith(`https://${host}/`) ? path : undefined;
-}
-
-export function mapRatings(data: Data) {
-  const ratings = Array.isArray(data.ratings) ? data.ratings : [];
-  const critics = value(ratings, ["tomatoes"], 100);
-  return {
-    ImdbRating: value(ratings, ["imdb"], 10), Metacritic: value(ratings, ["metacritic"], 100),
-    RottenTomatoes: critics, RottenTomatoesCritics: critics,
-    RottenTomatoesAudience: value(ratings, ["popcorn", "tomatoesaudience", "audience"], 100),
-    RottenTomatoesLink: sourceUrl(ratings, ["tomatoes", "popcorn", "tomatoesaudience", "audience"], "www.rottentomatoes.com"),
-    LetterboxdRating: value(ratings, ["letterboxd"], 5),
-    LetterboxdLink: sourceUrl(ratings, ["letterboxd"], "letterboxd.com"),
-    RatingsStatus: ratings.some(r => typeof r.value === "number") ? "Available via MDBList" : "No ratings available",
-    RatingsFetchedAt: new Date().toISOString(),
-  };
-}
-
-async function ratings(context: coda.ExecutionContext, type: Media, id: number) {
-  try {
-    const response = await context.fetcher.fetch({
-      method: "GET",
-      url: coda.withQueryParams(`https://api.mdblist.com/tmdb/${type === "tv" ? "show" : "movie"}/${id}`, { apikey: `{{mdblistApiKey-${context.invocationToken}}}` }),
-      cacheTtlSecs: 86400,
-    });
-    if (response.body?.error) return { RatingsStatus: "MDBList could not retrieve ratings" };
-    return mapRatings(response.body || {});
-  } catch (error) {
-    const status = (error as any)?.statusCode || (error as any)?.response?.statusCode;
-    return { RatingsStatus: status === 429 ? "MDBList rate limit reached; try later" : status === 401 || status === 403 ? "MDBList key rejected or access denied" : "MDBList unavailable; movie details still available" };
-  }
 }
 
 function people(records: Data[] = []) {
@@ -128,7 +83,7 @@ async function getTitle(context: coda.ExecutionContext, query: string, country: 
   if (!/^[A-Z]{2}$/.test(country)) throw new coda.UserVisibleError("Use a two-letter streaming country, such as US, CA, or GB.");
   const id = await resolve(context, query, type);
   const append = type === "movie" ? "credits,videos,release_dates,external_ids,watch/providers" : "credits,videos,content_ratings,external_ids,watch/providers";
-  const [data, scores] = await Promise.all([tmdb(context, `${type}/${id}`, { append_to_response: append }), ratings(context, type, id)]);
+  const data = await tmdb(context, `${type}/${id}`, { append_to_response: append });
   const imdbId = data.imdb_id || data.external_ids?.imdb_id || undefined;
   const common = {
     Title: data.title || data.name, TmdbId: id, TmdbLink: `https://www.themoviedb.org/${type}/${id}`,
@@ -137,7 +92,7 @@ async function getTitle(context: coda.ExecutionContext, query: string, country: 
     Plot: data.overview || undefined, Description: data.overview || undefined,
     Starring: people((data.credits?.cast || []).slice(0, 10)), Genres: (data.genres || []).map((g: Data) => g.name),
     Countries: (data.production_countries || []).map((c: Data) => c.name), Companies: (data.production_companies || []).map((c: Data) => c.name),
-    TrailerLink: trailer(data), ContentRating: certification(data, country, type), ...providers(data, country), ...scores,
+    TrailerLink: trailer(data), ContentRating: certification(data, country, type), ...providers(data, country),
   };
   if (type === "movie") return {
     ...common, Year: data.release_date ? Number(year(data.release_date)) : undefined, Runtime: data.runtime ? `${data.runtime} minutes` : undefined,

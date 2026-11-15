@@ -1,12 +1,12 @@
 {
   "scripts": {
     "test": "node -r ts-node/register/transpile-only --test tests/helpers.test.cjs",
-    "validate": "coda validate pack.ts",
+    "validate": "coda validate pack.ts && coda validate ratings/pack.ts",
     "test:live": "node -r ts-node/register/transpile-only tests/live-check.cjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@codahq/packs-sdk": "1.18.4"
+    "@codahq/packs-sdk": "npm:@superhuman/plugins-sdk@1.20.0"
   },
   "devDependencies": {
     "@types/chai": "^4.2.22",

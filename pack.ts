@@ -9,14 +9,9 @@ export const pack = coda.newPack();
 /* -------------------------------------------------------------------------- */
 
 pack.addNetworkDomain("themoviedb.org");
-pack.addNetworkDomain("mdblist.com");
 pack.setSystemAuthentication({
-  type: coda.AuthenticationType.Custom,
-  networkDomain: ["themoviedb.org", "mdblist.com"],
-  params: [
-    { name: "tmdbApiKey", description: "TMDB API Key (v3 auth)" },
-    { name: "mdblistApiKey", description: "MDBList API key" },
-  ],
+  type: coda.AuthenticationType.QueryParamToken,
+  paramName: "api_key",
 });
 
 /* -------------------------------------------------------------------------- */
@@ -26,21 +21,21 @@ pack.setSystemAuthentication({
 pack.addColumnFormat({
   name: "Movie",
   instructions:
-    "Shows movie details from IMDB (put title, title and year, or IMDB ID in column)",
+    "Shows movie details from TMDB (put title, title and year, or IMDB ID in column)",
   formulaName: "Movie",
 });
 
 pack.addColumnFormat({
   name: "Series",
   instructions:
-    "Shows TV series details from IMDB (put show name or IMDB ID in column)",
+    "Shows TV series details from TMDB (put show name or IMDB ID in column)",
   formulaName: "Series",
 });
 
 pack.addColumnFormat({
   name: "Person",
   instructions:
-    "Shows person details from IMDB (put name or IMDB ID in column)",
+    "Shows person details from TMDB (put name or IMDB ID in column)",
   formulaName: "Person",
 });
 
@@ -55,7 +50,7 @@ pack.addFormula({
     coda.makeParameter({
       type: coda.ParameterType.String,
       name: "title",
-      description: "Search IMDB (try movie title, or movie title and year)",
+      description: "Search by title, title and year, or IMDb ID",
     }),
     coda.makeParameter({
       type: coda.ParameterType.String,
@@ -82,7 +77,7 @@ pack.addFormula({
     coda.makeParameter({
       type: coda.ParameterType.String,
       name: "title",
-      description: "Search IMDB (try series title, or series title and year)",
+      description: "Search by title, title and year, or IMDb ID",
     }),
     coda.makeParameter({
       type: coda.ParameterType.String,
@@ -111,7 +106,7 @@ pack.addFormula({
       type: coda.ParameterType.String,
       name: "name",
       description:
-        "Search IMDB (try person's name, or their IMDB ID beginning with 'nm')",
+        "Search by name or IMDb ID beginning with nm",
     }),
   ],
   resultType: coda.ValueType.Object,

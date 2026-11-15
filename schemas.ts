@@ -11,21 +11,15 @@ const attributionImdb: coda.AttributionNode[] = [
   },
   {
     type: coda.AttributionNodeType.Link,
-    anchorText: "IMDb",
-    anchorUrl: "https://imdb.com/",
-  },
-  {
-    type: coda.AttributionNodeType.Image,
-    imageUrl:
-      "https://m.media-amazon.com/images/G/01/imdb/images-ANDW73HA/favicon_desktop_32x32._CB1582158068_.png",
-    anchorUrl: "https://imdb.com/",
+    anchorText: "TMDB",
+    anchorUrl: "https://www.themoviedb.org/",
   },
 ];
 
 const attributionGeneric: coda.AttributionNode[] = [
   {
     type: coda.AttributionNodeType.Text,
-    text: "Metadata from TMDB. Ratings via MDBList. Streaming data from JustWatch. This product uses the TMDB API but is not endorsed or certified by TMDB.",
+    text: "Metadata from TMDB. Streaming data from JustWatch. This product uses the TMDB API but is not endorsed or certified by TMDB.",
   },
 ];
 
@@ -143,16 +137,6 @@ export const MovieSchema = coda.makeObjectSchema({
     },
     TmdbId: { type: coda.ValueType.Number },
     TmdbLink: { type: coda.ValueType.String, codaType: coda.ValueHintType.Url },
-    RottenTomatoes: { type: coda.ValueType.Number },
-    RottenTomatoesCritics: { type: coda.ValueType.Number },
-    RottenTomatoesAudience: { type: coda.ValueType.Number },
-    RottenTomatoesLink: { type: coda.ValueType.String, codaType: coda.ValueHintType.Url },
-    LetterboxdRating: { type: coda.ValueType.Number },
-    LetterboxdLink: { type: coda.ValueType.String, codaType: coda.ValueHintType.Url },
-    RatingsStatus: { type: coda.ValueType.String },
-    RatingsFetchedAt: { type: coda.ValueType.String, codaType: coda.ValueHintType.DateTime },
-    ImdbRating: { type: coda.ValueType.Number },
-    Metacritic: { type: coda.ValueType.Number },
     ContentRating: { type: coda.ValueType.String },
     VerticalPoster: {
       type: coda.ValueType.String,
@@ -258,16 +242,6 @@ export const SeriesSchema = coda.makeObjectSchema({
     ContentRating: { type: coda.ValueType.String },
     TmdbId: { type: coda.ValueType.Number },
     TmdbLink: { type: coda.ValueType.String, codaType: coda.ValueHintType.Url },
-    RottenTomatoes: { type: coda.ValueType.Number },
-    RottenTomatoesCritics: { type: coda.ValueType.Number },
-    RottenTomatoesAudience: { type: coda.ValueType.Number },
-    RottenTomatoesLink: { type: coda.ValueType.String, codaType: coda.ValueHintType.Url },
-    LetterboxdRating: { type: coda.ValueType.Number },
-    LetterboxdLink: { type: coda.ValueType.String, codaType: coda.ValueHintType.Url },
-    RatingsStatus: { type: coda.ValueType.String },
-    RatingsFetchedAt: { type: coda.ValueType.String, codaType: coda.ValueHintType.DateTime },
-    ImdbRating: { type: coda.ValueType.Number },
-    Metacritic: { type: coda.ValueType.Number },
     VerticalPoster: {
       type: coda.ValueType.String,
       codaType: coda.ValueHintType.ImageReference,

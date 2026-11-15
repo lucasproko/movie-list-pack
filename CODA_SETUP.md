@@ -1,35 +1,41 @@
-# Coda setup and current blocker
+# Coda setup
 
-Private Pack: [Movie List Plus](https://coda.io/p/80128)
+The combined Pack required approval for multiple network domains and Custom authentication. On November 14, 2026, we replaced that configuration with two single-domain Packs using native query-parameter API-key authentication. Both uploads were accepted without those approvals.
 
-The Pack was created in the owner's personal workspace. All three supplied credentials were verified. Coda's upload API rejected the first version with:
+| Pack | Version | Domain | System credential |
+| --- | --- | --- | --- |
+| [Movie Details, 80128](https://coda.io/p/80128) | 2 | `themoviedb.org` | TMDB API key, `api_key` |
+| [Movie Ratings, 80132](https://coda.io/p/80132) | 1 | `mdblist.com` | MDBList API key, `apikey` |
 
-> Specifying multiple network domains requires Superhuman Docs approval.
+Both Packs belong to the owner's personal workspace. Configure credentials in Pack Studio's system connection settings; no API keys belong in source or approval attachments.
 
-Request platform approval for Pack **80128** with:
+## Uploading
 
-- Network domains: `themoviedb.org`, `mdblist.com`.
-- Authentication: Custom system authentication with `tmdbApiKey` and `mdblistApiKey`.
-- Authenticated network domains: both above. Each request inserts only the credential for its own service.
-- Purpose: private personal movie/TV list; TMDB supplies metadata and region-specific streaming availability, MDBList supplies ratings including Rotten Tomatoes audience and Letterboxd.
+1. Install dependencies with `npm ci`.
+2. Authenticate the Coda CLI and associate `pack.ts` with Movie Details and `ratings/pack.ts` with Movie Ratings. Account and Pack association files are ignored.
+3. Run `npm test`, `npm run typecheck`, and `npm run validate`.
+4. Upload each entry point: `npx coda upload pack.ts` and `npx coda upload ratings/pack.ts`.
+5. Configure the corresponding native system API key on each Pack, then install both Packs in a test doc.
 
-No API keys belong in the approval request. They are configured separately as system credentials after a successful upload.
+## Using the Packs together
 
-After approval:
+In Coda's formula editor, type `Movie` and choose the **Movie Details** autocomplete suggestion. This inserts the correct Pack reference; typing an assumed Pack namespace can produce a Missing Pack error.
 
-1. `npx coda upload pack.ts --notes 'TMDB metadata and MDBList ratings'`
-2. Set the two system authentication parameters in Pack Studio → Settings.
-3. Install the private Pack in a new test document. Test movies by IMDb ID, both Dune remakes, TV shows, scores, and streaming availability.
-4. Validate the existing document's formulas and migrate a copy first. The user's original data and formulas have not been migrated.
+For a movie table:
 
-## Verification completed
+1. Add a Details formula column using Movie Details' `Movie(thisRow.Title)` (or an IMDb ID column for precise matching).
+2. Add a Ratings formula column using Movie Ratings' `Ratings(thisRow.Details.ImdbId)`.
+3. Expose fields such as `thisRow.Ratings.RottenTomatoesAudience` and `thisRow.Ratings.LetterboxdRating` as display columns. RT values use 0–100, so append a percent sign or divide by 100 before applying Coda percentage formatting.
 
-- Coda token: whoami succeeded for the owner.
-- TMDB: live metadata, poster, videos, and regional availability returned.
-- MDBList: live IMDb, Metacritic, RT critics/audience, Letterboxd ratings returned.
-- Six deterministic regression tests passed.
-- Five live Coda SDK executions passed: Inception; Dune (2021); Dune (1984); Breaking Bad; Tom Hanks.
-- TypeScript and Coda local schema validation passed.
-- Upload reached server validation, then failed on the multi-domain approval requirement. No version has been installed or proven in Coda's hosted runtime.
+For TV use `Series(...)` in Details and `Ratings(thisRow.Details.ImdbId, "show")` in Ratings. Missing scores stay blank; check `RatingsStatus` for provider failures. Letterboxd coverage is not guaranteed for every title.
 
-MDBList-only could supply basic metadata and ratings using a single domain, but region-specific streaming and full person/cast details are not an equivalent replacement. The implementation retains the full two-provider design.
+## Verification on November 14, 2026
+
+- Nine deterministic regression tests cover matching, ratings, provider failure, and the single-domain/native-auth boundaries.
+- TypeScript and both Coda schemas validate.
+- Five live SDK checks cover Inception, Dune (2021), Dune (1984), Breaking Bad, and Tom Hanks.
+- Both Pack versions uploaded successfully and both system connections use native API-key authentication.
+- Both Packs were installed in the separate [Movie Pack Test document](https://docs.superhuman.com/d/Movie-Pack-Test_dMmi8Pa9iyS/Movie-Pack-Test_suQkM0iv).
+- Saved hosted Coda formulas returned Inception from Movie Details and from Movie Ratings using the metadata object's IMDb ID. Displayed results: IMDb 8.8/10, RT critics 86/100, RT audience 91/100, Letterboxd 4.2/5.
+
+The original TV & Movie List has not been migrated. Validate its existing formulas and test a copy before replacing its installed IMDb+ Pack columns. The previously prepared combined-source ZIP predates this split; use the repository source for the current architecture.
