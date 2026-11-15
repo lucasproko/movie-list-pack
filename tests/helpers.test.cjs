@@ -96,10 +96,11 @@ test('batches deduplicate IDs, split safely and match unordered responses by ide
  const ctx={fetcher:{fetch:async request=>{
   calls++;assert.equal(request.method,'POST');assert.equal(new URL(request.url).pathname,'/imdb/show');
   const chunk=JSON.parse(request.body).ids;assert.ok(chunk.length<=50);
-  return {body:[...chunk].reverse().filter(id=>id!=='tt1001').map(id=>({title:id,ids:{imdb:id},ratings:[{source:'imdb',value:8}]})).concat({ids:{imdb:'tt9999'},ratings:[{source:'imdb',value:10}]})};
+  return {body:[...chunk].reverse().filter(id=>id!=='tt1001').map(id=>({title:id,ids:{imdb:id},ratings:[{source:'imdb',value:8},{source:'letterboxd',value:8.4}]})).concat({ids:{imdb:'tt9999'},ratings:[{source:'imdb',value:10}]})};
  }}};
  const results=await getRatingsMany(ctx,[...ids,' TT1000 ',''],'tv');
  assert.equal(calls,2);assert.equal(results.length,51);assert.equal(results[0].ImdbId,'tt1000');assert.equal(results[0].ImdbRating,8);
+ assert.equal(results[0].LetterboxdRating,4.2);
  assert.equal(results[1].ImdbId,'tt1001');assert.equal(results[1].ImdbRating,undefined);assert.match(results[1].RatingsStatus,/did not return/);
  assert.deepEqual(await getRatingsMany(ctx,[]),[]);assert.equal(calls,2);
  await assert.rejects(()=>getRatingsMany(ctx,['bad']),/IMDb title IDs/);

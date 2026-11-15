@@ -62,7 +62,9 @@ export async function getRatingsMany(context: coda.ExecutionContext, inputs: str
     const byId = new Map(response.body.filter((item: Data) => chunk.includes(item.ids?.imdb)).map((item: Data) => [item.ids.imdb, item]));
     for (const id of chunk) {
       const item = byId.get(id) as Data | undefined;
-      results.push(item ? {ImdbId: id, Title: item.title || id, TmdbId: item.ids?.tmdb, Year: item.year, ...mapRatings(item)} : {ImdbId: id, Title: id, RatingsStatus: "MDBList did not return this title"});
+      // The batch endpoint reports Letterboxd on 0–10; the single-title endpoint uses 0–5.
+      const normalized = item && {...item, ratings: (item.ratings || []).map((rating: Data) => rating.source === "letterboxd" && typeof rating.value === "number" && rating.value >= 0 && rating.value <= 10 ? {...rating, value: rating.value / 2} : rating)};
+      results.push(item ? {ImdbId: id, Title: item.title || id, TmdbId: item.ids?.tmdb, Year: item.year, ...mapRatings(normalized!)} : {ImdbId: id, Title: id, RatingsStatus: "MDBList did not return this title"});
     }
   }
   return results;
