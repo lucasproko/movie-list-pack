@@ -1,5 +1,5 @@
 import * as coda from "@codahq/packs-sdk";
-import {getRatings, getRatingsMany, getSavedRatings} from "./helpers";
+import {getRatings, getRatingsWithFallback, getSavedRatings} from "./helpers";
 
 export const pack = coda.newPack();
 pack.addNetworkDomain("mdblist.com");
@@ -58,10 +58,12 @@ pack.addFormula({
     coda.makeParameter({type: coda.ParameterType.StringArray, name: "imdbIds", description: "IMDb title IDs from the Details columns."}),
     coda.makeParameter({type: coda.ParameterType.String, name: "mediaType", description: '"movie" (default) or "show".', optional: true}),
     coda.makeParameter({type: coda.ParameterType.String, name: "refreshKey", description: "Optional version label to recalculate the shared result after a Pack update. HTTP responses still use their cache.", optional: true}),
+    coda.makeParameter({type: coda.ParameterType.StringArray, name: "savedSnapshots", description: "Optional saved Ratings-schema JSON objects to use when live ratings are unavailable.", optional: true}),
+    coda.makeParameter({type: coda.ParameterType.Boolean, name: "liveEnabled", description: "Set false to read saved ratings without making provider requests, for example until a daily quota resets.", optional: true}),
   ],
   resultType: coda.ValueType.Array,
   items: RatingsSchema,
-  execute: async ([ids, mediaType], context) => getRatingsMany(context, ids, mediaType),
+  execute: async ([ids, mediaType, _refreshKey, snapshots, liveEnabled], context) => getRatingsWithFallback(context, ids, mediaType, snapshots, liveEnabled),
 });
 
 pack.addFormula({

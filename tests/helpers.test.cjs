@@ -1,7 +1,7 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {parseQuery,getMovie,getSeries}=require('../helpers.ts');
-const {mapRatings,getRatings,getRatingsMany,getSavedRatings}=require('../ratings/helpers.ts');
+const {mapRatings,getRatings,getRatingsMany,getSavedRatings,getRatingsWithFallback}=require('../ratings/helpers.ts');
 
 test('IMDb URL and remake year are parsed without losing identity',()=>{
  assert.equal(parseQuery(' https://www.imdb.com/title/tt1160419/?ref_=x ').imdbId,'tt1160419');
@@ -136,4 +136,16 @@ test('a batch limit preserves earlier results, identifies pending titles, and st
  const ctx={fetcher:{fetch:async request=>{calls++;if(calls===2)throw {statusCode:429};return {body:JSON.parse(request.body).ids.map(id=>({ids:{imdb:id},ratings:[{source:'imdb',value:8}]}))};}}};
  const results=await getRatingsMany(ctx,ids);assert.equal(calls,2);assert.equal(results.length,101);
  assert.equal(results[49].ImdbRating,8);assert.equal(results[50].ImdbId,'tt2050');assert.equal(results[50].ImdbRating,undefined);assert.match(results[100].RatingsStatus,/rate limit/);
+});
+
+test('shared saved snapshots avoid per-row calls and successful live data wins',async()=>{
+ const snapshot=JSON.stringify({ImdbId:'tt1',Title:'Saved',ImdbRating:8,RatingsFetchedAt:'2026-11-14T00:00:00Z'});
+ const never={fetcher:{fetch:async()=>{throw Error('unexpected provider request');}}};
+ const paused=await getRatingsWithFallback(never,['tt2','tt1'],'movie',[snapshot],false);
+ assert.equal(paused[0].ImdbRating,8);assert.equal(paused[0].RatingsFetchedAt,'2026-11-14T00:00:00Z');assert.match(paused[1].RatingsStatus,/Awaiting/);
+ const failed={fetcher:{fetch:async()=>{throw {statusCode:429};}}};
+ assert.equal((await getRatingsWithFallback(failed,['tt1'],'movie',[snapshot]))[0].ImdbRating,8);
+ const success={fetcher:{fetch:async()=>({body:[{ids:{imdb:'tt1'},ratings:[{source:'imdb',value:9}]}]})}};
+ assert.equal((await getRatingsWithFallback(success,['tt1'],'movie',[snapshot]))[0].ImdbRating,9);
+ assert.equal((await getRatingsWithFallback(never,['tt2'],'movie',[snapshot],false))[0].ImdbRating,undefined);
 });

@@ -60,6 +60,23 @@ export function getSavedRatings(snapshotJson: string, imdbId: string) {
   return {...snapshot, ImdbRating: undefined, LetterboxdRating: undefined, RottenTomatoes: undefined, RottenTomatoesCritics: undefined, RottenTomatoesAudience: undefined, Metacritic: undefined, ...scores, RatingsStatus: "Using saved ratings; live refresh pending"};
 }
 
+export async function getRatingsWithFallback(context: coda.ExecutionContext, inputs: string[], mediaType = "movie", snapshots: string[] = [], liveEnabled = true) {
+  const ids = [...new Set(inputs.map(id => id.trim().toLowerCase()).filter(Boolean))].sort();
+  if (ids.some(id => !/^tt\d+$/.test(id))) throw new coda.UserVisibleError("Use IMDb title IDs for the ratings batch.");
+  if (ids.length > 1000) throw new coda.UserVisibleError("Request at most 1,000 unique titles per batch formula.");
+  const saved = new Map<string, Data>();
+  for (const json of snapshots.filter(Boolean)) {
+    let snapshot: Data;
+    try { snapshot = JSON.parse(json); } catch { throw new coda.UserVisibleError("Saved ratings are not valid JSON."); }
+    if (snapshot && ids.includes(snapshot.ImdbId)) saved.set(snapshot.ImdbId, getSavedRatings(json, snapshot.ImdbId));
+  }
+  const live = new Map((await getRatingsMany(context, liveEnabled ? ids : [], mediaType)).map(result => [result.ImdbId, result]));
+  return ids.map(id => {
+    const current = live.get(id);
+    return current?.RatingsStatus === "Available via MDBList" ? current : saved.get(id) || current || getSavedRatings("", id);
+  });
+}
+
 export async function getRatingsMany(context: coda.ExecutionContext, inputs: string[], mediaType = "movie") {
   const ids = [...new Set(inputs.map(id => id.trim().toLowerCase()).filter(Boolean))].sort();
   if (ids.some(id => !/^tt\d+$/.test(id))) throw new coda.UserVisibleError("Use IMDb title IDs for the ratings batch.");
