@@ -7,7 +7,7 @@ Two private Packs keep each provider on its own network domain with native API-k
 | Pack | Entry point | Formulas | Provider |
 | --- | --- | --- | --- |
 | [Movie Details](https://coda.io/p/80128) | `pack.ts` | `Movie`, `Series`, `Person` | TMDB |
-| [Movie Ratings](https://coda.io/p/80132) | `ratings/pack.ts` | `Ratings` | MDBList |
+| [Movie Ratings](https://coda.io/p/80132) | `ratings/pack.ts` | `Ratings`, `RatingsMany` | MDBList |
 
 `Movie(titleOrImdbId, country?)`, `Series(titleOrImdbId, country?)`, and `Person(nameOrImdbId)` retain the original formula names. Use an IMDb ID or include a release year to distinguish remakes. Streaming defaults to US; UK is accepted as an alias for GB.
 
@@ -16,6 +16,10 @@ Pass the metadata result's `ImdbId` to `Ratings(imdbId, mediaType?)`. Use `"show
 Metadata and streaming availability come from TMDB/JustWatch. Ratings come from MDBList, and may be missing or delayed. A ratings outage leaves the separate metadata object available and reports the failure in `RatingsStatus`. Formula results and HTTP responses use 24-hour caches. Cache expiration does not itself schedule a refresh; choose a refresh policy in Coda. Avoid hourly whole-table ratings refreshes on a limited MDBList plan. The original USA box-office breakdown, person height, and actor IMDb IDs are unavailable from these metadata responses and stay blank; actor TMDB links are supplied instead.
 
 The same detail response also supplies trailers, languages, keywords, recommendations, cast, creators/directors, and content ratings. Movies include release date and collection; TV includes episode totals, season counts, show type/status, and last/next episode information. Ratings include vote/review counts, awards, provider update time, and digital release date. These fields add no extra requests per title: a title lookup uses two TMDB requests (resolve + details with appended resources), and one MDBList request returns all scores and rating metadata.
+
+`RatingsMany(imdbIds, mediaType?)` deduplicates and sorts IMDb IDs, then requests batches of 50 from MDBList. Put it in a shared named canvas formula and look up each row's score by `ImdbId`. Do not call the whole-table batch separately in every row. Responses are matched by identity, including when the provider reorders or omits results. Up to 1,000 unique IDs are accepted. MDBList currently meters one request per batch; verify the allowance for your plan.
+
+Counts include `RottenTomatoesAudienceVotes` and `MetacriticReviews`. Rotten Tomatoes audience counts can be lower bounds (for example 250,000+ is returned as 250,000), so they are conservative confidence inputs rather than exact totals. Missing counts stay blank. TV `SeasonRatings` includes scored regular seasons whose first air date has passed, with `Label`, `Rating`, `SeasonNumber`, `EpisodeCount`, and `AirDate`. `LatestSeasonRating` and `LatestSeasonNumber` identify the latest of those seasons. Scores are TMDB user averages on a 0–10 scale, not Rotten Tomatoes season scores. The existing detail request supplies them; no per-season requests are made. Season vote counts are unavailable in that response.
 
 ## Development
 
