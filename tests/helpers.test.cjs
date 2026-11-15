@@ -130,3 +130,10 @@ test('saved ratings verify title identity, preserve their original date, and rej
  assert.throws(()=>getSavedRatings(json,'tt1160419'),/different title/);assert.throws(()=>getSavedRatings('invalid','tt1'),/valid JSON/);
  assert.equal(getSavedRatings('','tt123').ImdbRating,undefined);
 });
+
+test('a batch limit preserves earlier results, identifies pending titles, and stops further requests',async()=>{
+ let calls=0;const ids=Array.from({length:101},(_,i)=>`tt${2000+i}`);
+ const ctx={fetcher:{fetch:async request=>{calls++;if(calls===2)throw {statusCode:429};return {body:JSON.parse(request.body).ids.map(id=>({ids:{imdb:id},ratings:[{source:'imdb',value:8}]}))};}}};
+ const results=await getRatingsMany(ctx,ids);assert.equal(calls,2);assert.equal(results.length,101);
+ assert.equal(results[49].ImdbRating,8);assert.equal(results[50].ImdbId,'tt2050');assert.equal(results[50].ImdbRating,undefined);assert.match(results[100].RatingsStatus,/rate limit/);
+});

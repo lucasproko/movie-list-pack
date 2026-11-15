@@ -70,7 +70,15 @@ export async function getRatingsMany(context: coda.ExecutionContext, inputs: str
   // Keep verbose provider responses comfortably below the fetcher's response-size limit.
   for (let offset = 0; offset < ids.length; offset += 50) {
     const chunk = ids.slice(offset, offset + 50);
-    const response = await context.fetcher.fetch({method: "POST", url: `https://api.mdblist.com/imdb/${type}`, headers: {"Content-Type": "application/json"}, body: JSON.stringify({ids: chunk}), cacheTtlSecs: 86400});
+    let response;
+    try {
+      response = await context.fetcher.fetch({method: "POST", url: `https://api.mdblist.com/imdb/${type}`, headers: {"Content-Type": "application/json"}, body: JSON.stringify({ids: chunk}), cacheTtlSecs: 86400});
+    } catch (error) {
+      const status = (error as any)?.statusCode || (error as any)?.response?.statusCode;
+      const message = status === 429 ? "MDBList rate limit reached; try later" : status === 401 || status === 403 ? "MDBList key rejected or access denied" : "MDBList unavailable; try again later";
+      // Stop after a failed batch so a daily limit does not trigger more requests.
+      return [...results, ...ids.slice(offset).map(id => ({ImdbId: id, Title: id, RatingsStatus: message}))];
+    }
     if (!Array.isArray(response.body)) throw new coda.UserVisibleError("MDBList did not return a ratings batch. Try refreshing later.");
     const byId = new Map(response.body.filter((item: Data) => chunk.includes(item.ids?.imdb)).map((item: Data) => [item.ids.imdb, item]));
     for (const id of chunk) {
