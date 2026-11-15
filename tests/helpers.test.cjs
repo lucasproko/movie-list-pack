@@ -1,7 +1,7 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {parseQuery,getMovie,getSeries}=require('../helpers.ts');
-const {mapRatings,getRatings,getRatingsMany}=require('../ratings/helpers.ts');
+const {mapRatings,getRatings,getRatingsMany,getSavedRatings}=require('../ratings/helpers.ts');
 
 test('IMDb URL and remake year are parsed without losing identity',()=>{
  assert.equal(parseQuery(' https://www.imdb.com/title/tt1160419/?ref_=x ').imdbId,'tt1160419');
@@ -122,4 +122,11 @@ test('season scores exclude specials, future seasons, and unrated seasons withou
  assert.deepEqual(result.SeasonRatings.map(s=>s.Label),['S1 · 8.4','S2 · 7.6']);
  assert.equal(result.LatestSeasonRating,7.6);assert.equal(result.LatestSeasonNumber,2);
  assert.equal(result.Seasons.length,5);
+});
+
+test('saved ratings verify title identity, preserve their original date, and reject invalid scores',()=>{
+ const json=JSON.stringify({ImdbId:'tt1375666',Title:'Inception',ImdbRating:8.8,LetterboxdRating:84,RottenTomatoesAudience:0,RatingsFetchedAt:'2026-11-14T22:00:00Z'});
+ const r=getSavedRatings(json,'tt1375666');assert.equal(r.ImdbRating,8.8);assert.equal(r.LetterboxdRating,undefined);assert.equal(r.RottenTomatoesAudience,0);assert.equal(r.RatingsFetchedAt,'2026-11-14T22:00:00Z');assert.match(r.RatingsStatus,/saved ratings/);
+ assert.throws(()=>getSavedRatings(json,'tt1160419'),/different title/);assert.throws(()=>getSavedRatings('invalid','tt1'),/valid JSON/);
+ assert.equal(getSavedRatings('','tt123').ImdbRating,undefined);
 });

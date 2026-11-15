@@ -47,6 +47,19 @@ export function mapRatings(data: Data) {
   };
 }
 
+export function getSavedRatings(snapshotJson: string, imdbId: string) {
+  if (!snapshotJson.trim()) return {ImdbId: imdbId, Title: imdbId, RatingsStatus: "Awaiting live MDBList ratings"};
+  let snapshot: Data;
+  try { snapshot = JSON.parse(snapshotJson); } catch { throw new coda.UserVisibleError("Saved ratings are not valid JSON."); }
+  if (!snapshot || !/^tt\d+$/.test(snapshot.ImdbId) || snapshot.ImdbId !== imdbId) throw new coda.UserVisibleError("Saved ratings belong to a different title; scores omitted.");
+  const scores: Data = {};
+  for (const [key, maximum] of Object.entries({ImdbRating: 10, LetterboxdRating: 5, RottenTomatoes: 100, RottenTomatoesCritics: 100, RottenTomatoesAudience: 100, Metacritic: 100})) {
+    const score = snapshot[key];
+    if (typeof score === "number" && Number.isFinite(score) && score >= 0 && score <= maximum) scores[key] = score;
+  }
+  return {...snapshot, ImdbRating: undefined, LetterboxdRating: undefined, RottenTomatoes: undefined, RottenTomatoesCritics: undefined, RottenTomatoesAudience: undefined, Metacritic: undefined, ...scores, RatingsStatus: "Using saved ratings; live refresh pending"};
+}
+
 export async function getRatingsMany(context: coda.ExecutionContext, inputs: string[], mediaType = "movie") {
   const ids = [...new Set(inputs.map(id => id.trim().toLowerCase()).filter(Boolean))].sort();
   if (ids.some(id => !/^tt\d+$/.test(id))) throw new coda.UserVisibleError("Use IMDb title IDs for the ratings batch.");

@@ -1,5 +1,5 @@
 import * as coda from "@codahq/packs-sdk";
-import {getRatings, getRatingsMany} from "./helpers";
+import {getRatings, getRatingsMany, getSavedRatings} from "./helpers";
 
 export const pack = coda.newPack();
 pack.addNetworkDomain("mdblist.com");
@@ -35,6 +35,19 @@ export const RatingsSchema = coda.makeObjectSchema({
   featuredProperties: ["ImdbRating", "RottenTomatoesAudience", "LetterboxdRating"],
   identity: {name: "Ratings"},
   attribution: [{type: coda.AttributionNodeType.Text, text: "Ratings via MDBList. Audience scores are reported as provided; not labeled as verified audience scores."}],
+});
+
+pack.addFormula({
+  name: "SavedRatings",
+  description: "Read a saved ratings snapshot without network requests while the live provider is unavailable.",
+  cacheTtlSecs: 86400,
+  parameters: [
+    coda.makeParameter({type: coda.ParameterType.String, name: "snapshotJson", description: "Saved ratings JSON from this row."}),
+    coda.makeParameter({type: coda.ParameterType.String, name: "imdbId", description: "The row's IMDb ID, used to verify the saved title."}),
+  ],
+  resultType: coda.ValueType.Object,
+  schema: RatingsSchema,
+  execute: async ([snapshot, imdbId]) => getSavedRatings(snapshot, imdbId),
 });
 
 pack.addFormula({
