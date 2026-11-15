@@ -111,11 +111,16 @@ async function getTitle(context: coda.ExecutionContext, query: string, country: 
   };
   const start = year(data.first_air_date);
   const end = data.in_production === false ? year(data.last_air_date) : undefined;
+  const seasons = (data.seasons || []).map((s: Data) => ({SeasonName: s.name, SeasonNumber: s.season_number, EpisodeCount: s.episode_count, AirDate: s.air_date || undefined, Rating: typeof s.vote_average === "number" && s.vote_average > 0 && s.vote_average <= 10 ? s.vote_average : undefined}));
+  const today = new Date().toISOString().slice(0, 10);
+  const seasonRatings = seasons.filter((s: Data) => s.SeasonNumber > 0 && s.AirDate && s.AirDate <= today && s.Rating !== undefined).sort((a: Data, b: Data) => a.SeasonNumber - b.SeasonNumber).map((s: Data) => ({...s, Label: `S${s.SeasonNumber} · ${s.Rating.toFixed(1)}`}));
+  const latest = seasonRatings[seasonRatings.length - 1];
   return {
     ...common, FullTitle: data.original_name || data.name,
     Years: { Years: start ? `${start}${end && end !== start ? `–${end}` : end ? "" : "–"}` : "", StartYear: start, EndYear: end },
     Creators: people(data.created_by || []), Networks: (data.networks || []).map((n: Data) => n.name),
-    Seasons: (data.seasons || []).map((s: Data) => ({ SeasonName: s.name, SeasonNumber: s.season_number, EpisodeCount: s.episode_count, AirDate: s.air_date || undefined })),
+    Seasons: seasons, SeasonRatings: seasonRatings,
+    LatestSeasonRating: latest?.Rating, LatestSeasonNumber: latest?.SeasonNumber,
     NextEpisodeAirDate: data.next_episode_to_air?.air_date || undefined, Status: data.status,
     TotalEpisodes: data.number_of_episodes, SeasonCount: data.number_of_seasons,
     SeriesType: data.type || undefined, LastAirDate: data.last_air_date || undefined,

@@ -210,6 +210,15 @@ export const SeriesSchema = coda.makeObjectSchema({
     LastAirDate: {type: coda.ValueType.String, codaType: coda.ValueHintType.Date},
     NextEpisodeTitle: {type: coda.ValueType.String},
     NextEpisodeNumber: {type: coda.ValueType.String},
+    LatestSeasonRating: {type: coda.ValueType.Number},
+    LatestSeasonNumber: {type: coda.ValueType.Number},
+    SeasonRatings: {type: coda.ValueType.Array, items: {
+      type: coda.ValueType.Object, properties: {
+        Label: {type: coda.ValueType.String}, SeasonNumber: {type: coda.ValueType.Number},
+        Rating: {type: coda.ValueType.Number}, EpisodeCount: {type: coda.ValueType.Number},
+        AirDate: {type: coda.ValueType.String, codaType: coda.ValueHintType.Date},
+      }, displayProperty: "Label", idProperty: "SeasonNumber",
+    }},
     Title: { type: coda.ValueType.String },
     FullTitle: { type: coda.ValueType.String },
     HorizontalPoster: {
@@ -289,6 +298,7 @@ export const SeriesSchema = coda.makeObjectSchema({
           SeasonName: { type: coda.ValueType.String },
           SeasonNumber: { type: coda.ValueType.Number },
           EpisodeCount: { type: coda.ValueType.Number },
+          Rating: { type: coda.ValueType.Number },
           AirDate: {
             type: coda.ValueType.String,
             codaType: coda.ValueHintType.Date,

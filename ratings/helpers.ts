@@ -17,9 +17,12 @@ function sourceUrl(ratings: Data[], sources: string[], host: string) {
   return path.startsWith(`https://${host}/`) ? path : undefined;
 }
 
-function votes(ratings: Data[], source: string) {
-  const count = ratings.find(rating => rating.source === source)?.votes;
-  return Number.isSafeInteger(count) && count >= 0 ? count : undefined;
+function votes(ratings: Data[], source: string | string[]) {
+  for (const name of Array.isArray(source) ? source : [source]) {
+    const count = ratings.find(rating => rating.source === name)?.votes;
+    if (Number.isSafeInteger(count) && count >= 0) return count;
+  }
+  return undefined;
 }
 
 export function mapRatings(data: Data) {
@@ -34,12 +37,35 @@ export function mapRatings(data: Data) {
     LetterboxdLink: sourceUrl(ratings, ["letterboxd"], "letterboxd.com"),
     ImdbVotes: votes(ratings, "imdb"), LetterboxdVotes: votes(ratings, "letterboxd"),
     RottenTomatoesCriticReviews: votes(ratings, "tomatoes"),
+    RottenTomatoesAudienceVotes: votes(ratings, ["popcorn", "tomatoesaudience", "audience"]),
+    MetacriticReviews: votes(ratings, "metacritic"),
     Awards: typeof data.awards === "string" && data.awards.trim() ? data.awards : undefined,
     ProviderUpdatedAt: typeof data.updated === "string" && Number.isFinite(Date.parse(data.updated)) ? new Date(data.updated).toISOString() : undefined,
     DigitalReleaseDate: typeof data.released_digital === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.released_digital) ? data.released_digital : undefined,
     RatingsStatus: ratings.some(r => typeof r.value === "number") ? "Available via MDBList" : "No ratings available",
     RatingsFetchedAt: new Date().toISOString(),
   };
+}
+
+export async function getRatingsMany(context: coda.ExecutionContext, inputs: string[], mediaType = "movie") {
+  const ids = [...new Set(inputs.map(id => id.trim().toLowerCase()).filter(Boolean))].sort();
+  if (ids.some(id => !/^tt\d+$/.test(id))) throw new coda.UserVisibleError("Use IMDb title IDs for the ratings batch.");
+  if (ids.length > 1000) throw new coda.UserVisibleError("Request at most 1,000 unique titles per batch formula.");
+  const type = mediaType.trim().toLowerCase() === "tv" ? "show" : mediaType.trim().toLowerCase();
+  if (type !== "movie" && type !== "show") throw new coda.UserVisibleError('Use "movie" or "show" for the media type.');
+  const results: Data[] = [];
+  // Keep verbose provider responses comfortably below the fetcher's response-size limit.
+  for (let offset = 0; offset < ids.length; offset += 50) {
+    const chunk = ids.slice(offset, offset + 50);
+    const response = await context.fetcher.fetch({method: "POST", url: `https://api.mdblist.com/imdb/${type}`, headers: {"Content-Type": "application/json"}, body: JSON.stringify({ids: chunk}), cacheTtlSecs: 86400});
+    if (!Array.isArray(response.body)) throw new coda.UserVisibleError("MDBList did not return a ratings batch. Try refreshing later.");
+    const byId = new Map(response.body.filter((item: Data) => chunk.includes(item.ids?.imdb)).map((item: Data) => [item.ids.imdb, item]));
+    for (const id of chunk) {
+      const item = byId.get(id) as Data | undefined;
+      results.push(item ? {ImdbId: id, Title: item.title || id, TmdbId: item.ids?.tmdb, Year: item.year, ...mapRatings(item)} : {ImdbId: id, Title: id, RatingsStatus: "MDBList did not return this title"});
+    }
+  }
+  return results;
 }
 
 export async function getRatings(context: coda.ExecutionContext, input: string, mediaType = "movie") {

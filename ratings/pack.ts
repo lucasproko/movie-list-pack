@@ -1,5 +1,5 @@
 import * as coda from "@codahq/packs-sdk";
-import {getRatings} from "./helpers";
+import {getRatings, getRatingsMany} from "./helpers";
 
 export const pack = coda.newPack();
 pack.addNetworkDomain("mdblist.com");
@@ -22,6 +22,8 @@ export const RatingsSchema = coda.makeObjectSchema({
     ImdbVotes: {type: coda.ValueType.Number},
     LetterboxdVotes: {type: coda.ValueType.Number},
     RottenTomatoesCriticReviews: {type: coda.ValueType.Number},
+    RottenTomatoesAudienceVotes: {type: coda.ValueType.Number},
+    MetacriticReviews: {type: coda.ValueType.Number},
     Awards: {type: coda.ValueType.String},
     ProviderUpdatedAt: {type: coda.ValueType.String, codaType: coda.ValueHintType.DateTime},
     DigitalReleaseDate: {type: coda.ValueType.String, codaType: coda.ValueHintType.Date},
@@ -33,6 +35,19 @@ export const RatingsSchema = coda.makeObjectSchema({
   featuredProperties: ["ImdbRating", "RottenTomatoesAudience", "LetterboxdRating"],
   identity: {name: "Ratings"},
   attribution: [{type: coda.AttributionNodeType.Text, text: "Ratings via MDBList. Audience scores are reported as provided; not labeled as verified audience scores."}],
+});
+
+pack.addFormula({
+  name: "RatingsMany",
+  description: "Get ratings and review counts for a shared list of IMDb IDs using efficient batches.",
+  cacheTtlSecs: 86400,
+  parameters: [
+    coda.makeParameter({type: coda.ParameterType.StringArray, name: "imdbIds", description: "IMDb title IDs from the Details columns."}),
+    coda.makeParameter({type: coda.ParameterType.String, name: "mediaType", description: '"movie" (default) or "show".', optional: true}),
+  ],
+  resultType: coda.ValueType.Array,
+  items: RatingsSchema,
+  execute: async ([ids, mediaType], context) => getRatingsMany(context, ids, mediaType),
 });
 
 pack.addFormula({
