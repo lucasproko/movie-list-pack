@@ -1,9 +1,12 @@
 {
   "scripts": {
-    "test": "bash tests/run-tests.sh"
+    "test": "node -r ts-node/register/transpile-only --test tests/helpers.test.cjs",
+    "validate": "coda validate pack.ts",
+    "test:live": "node -r ts-node/register/transpile-only tests/live-check.cjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@codahq/packs-sdk": "^1.7.4"
+    "@codahq/packs-sdk": "1.18.4"
   },
   "devDependencies": {
     "@types/chai": "^4.2.22",
@@ -24,6 +27,8 @@
     "mocha": "^9.1.3",
     "sinon": "^11.1.2",
     "ts-node": "^10.4.0",
-    "typescript": "^4.5.2"
-  }
+    "typescript": "5.9.3"
+  },
+  "name": "movie-list-pack",
+  "private": true
 }

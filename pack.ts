@@ -8,16 +8,14 @@ export const pack = coda.newPack();
 /*                                     API                                    */
 /* -------------------------------------------------------------------------- */
 
-// imdbapi.dev requires no authentication.
-// TMDB still requires an API key, so we use custom authentication to gather it.
-
-pack.addNetworkDomain("imdbapi.dev");
 pack.addNetworkDomain("themoviedb.org");
+pack.addNetworkDomain("mdblist.com");
 pack.setSystemAuthentication({
   type: coda.AuthenticationType.Custom,
-  networkDomain: "themoviedb.org",
+  networkDomain: ["themoviedb.org", "mdblist.com"],
   params: [
-    { name: "tmdbApiKey", description: "API Key from themoviedb.org" },
+    { name: "tmdbApiKey", description: "TMDB API Key (v3 auth)" },
+    { name: "mdblistApiKey", description: "MDBList API key" },
   ],
 });
 

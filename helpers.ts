@@ -1,711 +1,192 @@
 import * as coda from "@codahq/packs-sdk";
 
-/* -------------------------------------------------------------------------- */
-/*                                   Config                                   */
-/* -------------------------------------------------------------------------- */
+type Data = Record<string, any>;
+type Media = "movie" | "tv";
+const image = (path?: string) => path ? `https://image.tmdb.org/t/p/w780${path}` : undefined;
+const year = (date?: string) => date?.slice(0, 4) || undefined;
+const normalize = (text: string) => text.normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 
-const IMDB_API_BASE_URL = "https://api.imdbapi.dev/";
-const TMDB_BASE_URL = "https://api.themoviedb.org/3/";
-const TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w780/";
-const IMDB_TITLE_ID_REGEX = /^tt\d+$/; // tt followed by 1 or more digits
-const IMDB_PERSON_ID_REGEX = /^nm\d+$/; // nm followed by 1 or more digits
-
-/* -------------------------------------------------------------------------- */
-/*                              Helper Functions                              */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Fetches data from the imdbapi.dev API (no authentication required)
- * @param context Coda execution context
- * @param endpoint API endpoint path (e.g. "titles/tt1234567" or "search/titles")
- * @param params Optional query parameters
- * @returns Promise resolving to the response
- */
-export async function imdbApiDevFetch(
-  context: coda.ExecutionContext,
-  endpoint: string,
-  params?: { [key: string]: string | number }
-) {
-  let url = IMDB_API_BASE_URL + endpoint;
-  if (params) {
-    url = coda.withQueryParams(url, params);
-  }
-  const response = await context.fetcher.fetch({
-    method: "GET",
-    url,
-    cacheTtlSecs: 60 * 60 * 24,
-  });
-  return response;
+export function parseQuery(input: string) {
+  const query = input.trim();
+  if (!query) throw new coda.UserVisibleError("Enter a title or IMDb ID.");
+  const id = query.match(/^(tt\d+)$|^https?:\/\/(?:www\.)?imdb\.com\/title\/(tt\d+)(?:[/?#].*)?$/i);
+  if (id) return { imdbId: (id[1] || id[2]).toLowerCase() };
+  const dated = query.match(/^(.*?)\s*(?:\((\d{4})\)|[, ]\s*(\d{4}))$/);
+  return { title: dated ? dated[1].trim() : query, year: dated ? Number(dated[2] || dated[3]) : undefined };
 }
 
-/**
- * Fetches data from the TMDb API
- * @param context
- * @param endpoint Main endpoint
- * @param id TMDB ID of the movie, series, etc.
- * @param subEndpoint Additional URL path after ID (e.g. "watch/providers")
- * @param params URL parameters (e.g. language, external_source for searching IMDB IDs)
- * @returns Promise resolving to the response
- */
-export async function tmdbApiFetch(
-  context: coda.ExecutionContext,
-  endpoint: "movie" | "tv" | "find" | "watch/providers/regions" | "search/person" | "person",
-  id?: string,
-  subEndpoint?: string, // comes after the id in the URL (e.g. "videos", "release_dates", "content_ratings", "external_ids")
-  params?: { [key: string]: string }
-) {
-  // Build the URL
-  let url = TMDB_BASE_URL + endpoint;
-  if (id) url += "/" + id;
-  if (subEndpoint) url += "/" + subEndpoint;
-  params = {
-    ...params,
-    api_key: "{{tmdbApiKey-" + context.invocationToken + "}}",
-  };
-  url = coda.withQueryParams(url, params);
-  const response = await context.fetcher.fetch({
-    method: "GET",
-    url,
-    cacheTtlSecs: 60 * 60 * 24,
-  });
-  return response;
+async function tmdb(context: coda.ExecutionContext, path: string, params: Record<string, string | number> = {}) {
+  try {
+    const response = await context.fetcher.fetch({
+      method: "GET",
+      url: coda.withQueryParams(`https://api.themoviedb.org/3/${path}`, { ...params, api_key: `{{tmdbApiKey-${context.invocationToken}}}` }),
+      cacheTtlSecs: 86400,
+    });
+    return response.body as Data;
+  } catch (error) {
+    const status = (error as any)?.statusCode || (error as any)?.response?.statusCode;
+    throw new coda.UserVisibleError(status === 401 ? "TMDB API key was rejected. Update the Pack credentials." : "Movie details are unavailable from TMDB. Try again later.");
+  }
 }
 
-/**
- * Convenience function to get initial data from TMDB based on IMDb ID
- */
-export async function searchTmdbByImdbId(
-  context: coda.ExecutionContext,
-  imdbId: string
-) {
-  return tmdbApiFetch(
-    context,
-    "find",
-    imdbId,
-    undefined, // no sub-endpoint
-    { external_source: "imdb_id" }
-  );
+async function resolve(context: coda.ExecutionContext, input: string, type: Media) {
+  const query = parseQuery(input);
+  if (query.imdbId) {
+    const found = await tmdb(context, `find/${query.imdbId}`, { external_source: "imdb_id" });
+    const match = found[type === "movie" ? "movie_results" : "tv_results"]?.[0];
+    if (!match) throw new coda.UserVisibleError(`No ${type === "movie" ? "movie" : "TV series"} found for that IMDb ID.`);
+    return match.id as number;
+  }
+  const params: Record<string, string | number> = { query: query.title!, include_adult: "false" };
+  if (query.year) params[type === "movie" ? "year" : "first_air_date_year"] = query.year;
+  const found = await tmdb(context, `search/${type}`, params);
+  const matches = (found.results || []).filter((item: Data) => !query.year || Number(year(item.release_date || item.first_air_date)) === query.year);
+  const match = matches.find((item: Data) => [item.title, item.name, item.original_title, item.original_name].some(title => title && normalize(title) === normalize(query.title!))) || matches[0];
+  if (!match) throw new coda.UserVisibleError("No matching title found. Try the exact title and year, or an IMDb ID.");
+  return match.id as number;
 }
 
-/**
- * Search for a person on TMDB by name and get their IMDB ID
- * Used because imdbapi.dev doesn't have a person search endpoint
- */
-async function searchPersonAndGetImdbId(
-  context: coda.ExecutionContext,
-  name: string
-): Promise<string | null> {
-  // Search for the person on TMDB
-  const searchResponse = await tmdbApiFetch(
-    context,
-    "search/person",
-    undefined,
-    undefined,
-    { query: name }
-  );
-
-  const results = searchResponse?.body?.results;
-  if (!results || !results.length) {
-    return null;
+function value(ratings: Data[], sources: string[], maximum: number) {
+  for (const source of sources) {
+    const number = ratings.find(r => r.source === source)?.value;
+    if (typeof number === "number" && Number.isFinite(number) && number >= 0 && number <= maximum) return number;
   }
-
-  // Get the first result's TMDB ID
-  const tmdbPersonId = results[0].id;
-
-  // Get the external IDs for this person to find their IMDB ID
-  const externalIdsResponse = await tmdbApiFetch(
-    context,
-    "person",
-    String(tmdbPersonId),
-    "external_ids"
-  );
-
-  return externalIdsResponse?.body?.imdb_id || null;
-}
-
-/**
- * Build Coda-schema-ready object for streaming providers for a given TMDB ID
- */
-async function getWatchProviders(
-  context: coda.ExecutionContext,
-  tmdbId: string,
-  mediaType: "movie" | "tv",
-  countryCode: string
-) {
-  const streamingResult = await tmdbApiFetch(
-    context,
-    mediaType,
-    tmdbId,
-    "watch/providers"
-  );
-  // We're just interested in the local providers
-  const localProviders = streamingResult?.body?.results[countryCode];
-  if (!localProviders) return null;
-  return {
-    stream: localProviders.flatrate
-      ? localProviders.flatrate.map((provider) => ({
-          name: provider.provider_name,
-          country: countryCode,
-        }))
-      : [],
-    buy: localProviders.buy
-      ? localProviders.buy.map((provider) => ({
-          name: provider.provider_name,
-          country: countryCode,
-        }))
-      : [],
-    rent: localProviders.rent
-      ? localProviders.rent.map((provider) => ({
-          name: provider.provider_name,
-          country: countryCode,
-        }))
-      : [],
-    link: localProviders.link,
-  };
-}
-
-/**
- * Get trailer URL from TMDB videos endpoint
- * Looks for official trailers first, then any trailer, then any video
- */
-async function getTmdbTrailer(
-  context: coda.ExecutionContext,
-  tmdbId: string,
-  mediaType: "movie" | "tv"
-): Promise<string | undefined> {
-  const videosResponse = await tmdbApiFetch(context, mediaType, tmdbId, "videos");
-  const videos = videosResponse?.body?.results;
-  if (!videos || !videos.length) return undefined;
-
-  // Prefer official trailers from YouTube
-  const officialTrailer = videos.find(
-    (v: any) => v.type === "Trailer" && v.official && v.site === "YouTube"
-  );
-  if (officialTrailer) {
-    return `https://www.youtube.com/watch?v=${officialTrailer.key}`;
-  }
-
-  // Fall back to any trailer
-  const anyTrailer = videos.find(
-    (v: any) => v.type === "Trailer" && v.site === "YouTube"
-  );
-  if (anyTrailer) {
-    return `https://www.youtube.com/watch?v=${anyTrailer.key}`;
-  }
-
-  // Fall back to any YouTube video
-  const anyVideo = videos.find((v: any) => v.site === "YouTube");
-  if (anyVideo) {
-    return `https://www.youtube.com/watch?v=${anyVideo.key}`;
-  }
-
   return undefined;
 }
 
-/**
- * Get content rating from TMDB
- * For movies, uses release_dates endpoint (certifications per country)
- * For TV, uses content_ratings endpoint
- */
-async function getTmdbContentRating(
-  context: coda.ExecutionContext,
-  tmdbId: string,
-  mediaType: "movie" | "tv",
-  countryCode: string = "US"
-): Promise<string | undefined> {
-  if (mediaType === "movie") {
-    const releaseDatesResponse = await tmdbApiFetch(
-      context,
-      "movie",
-      tmdbId,
-      "release_dates"
-    );
-    const results = releaseDatesResponse?.body?.results;
-    if (!results) return undefined;
+function sourceUrl(ratings: Data[], sources: string[], host: string) {
+  const path = sources.map(source => ratings.find(r => r.source === source)?.url).find(url => typeof url === "string" && url.length);
+  if (!path) return undefined;
+  if (path.startsWith("/") && !path.startsWith("//")) return `https://${host}${path}`;
+  return path.startsWith(`https://${host}/`) ? path : undefined;
+}
 
-    // Find the rating for the requested country
-    const countryRelease = results.find(
-      (r: any) => r.iso_3166_1 === countryCode
-    );
-    if (countryRelease?.release_dates?.length) {
-      // Get the theatrical or first release with a certification
-      const ratedRelease = countryRelease.release_dates.find(
-        (rd: any) => rd.certification
-      );
-      if (ratedRelease?.certification) {
-        return ratedRelease.certification;
-      }
-    }
+export function mapRatings(data: Data) {
+  const ratings = Array.isArray(data.ratings) ? data.ratings : [];
+  const critics = value(ratings, ["tomatoes"], 100);
+  return {
+    ImdbRating: value(ratings, ["imdb"], 10), Metacritic: value(ratings, ["metacritic"], 100),
+    RottenTomatoes: critics, RottenTomatoesCritics: critics,
+    RottenTomatoesAudience: value(ratings, ["popcorn", "tomatoesaudience", "audience"], 100),
+    RottenTomatoesLink: sourceUrl(ratings, ["tomatoes", "popcorn", "tomatoesaudience", "audience"], "www.rottentomatoes.com"),
+    LetterboxdRating: value(ratings, ["letterboxd"], 5),
+    LetterboxdLink: sourceUrl(ratings, ["letterboxd"], "letterboxd.com"),
+    RatingsStatus: ratings.some(r => typeof r.value === "number") ? "Available via MDBList" : "No ratings available",
+    RatingsFetchedAt: new Date().toISOString(),
+  };
+}
 
-    // Fall back to US rating if requested country not found
-    if (countryCode !== "US") {
-      const usRelease = results.find((r: any) => r.iso_3166_1 === "US");
-      if (usRelease?.release_dates?.length) {
-        const ratedRelease = usRelease.release_dates.find(
-          (rd: any) => rd.certification
-        );
-        if (ratedRelease?.certification) {
-          return ratedRelease.certification;
-        }
-      }
-    }
-  } else {
-    // TV content ratings
-    const contentRatingsResponse = await tmdbApiFetch(
-      context,
-      "tv",
-      tmdbId,
-      "content_ratings"
-    );
-    const results = contentRatingsResponse?.body?.results;
-    if (!results) return undefined;
+async function ratings(context: coda.ExecutionContext, type: Media, id: number) {
+  try {
+    const response = await context.fetcher.fetch({
+      method: "GET",
+      url: coda.withQueryParams(`https://api.mdblist.com/tmdb/${type === "tv" ? "show" : "movie"}/${id}`, { apikey: `{{mdblistApiKey-${context.invocationToken}}}` }),
+      cacheTtlSecs: 86400,
+    });
+    if (response.body?.error) return { RatingsStatus: "MDBList could not retrieve ratings" };
+    return mapRatings(response.body || {});
+  } catch (error) {
+    const status = (error as any)?.statusCode || (error as any)?.response?.statusCode;
+    return { RatingsStatus: status === 429 ? "MDBList rate limit reached; try later" : status === 401 || status === 403 ? "MDBList key rejected or access denied" : "MDBList unavailable; movie details still available" };
+  }
+}
 
-    // Find the rating for the requested country
-    const countryRating = results.find(
-      (r: any) => r.iso_3166_1 === countryCode
-    );
-    if (countryRating?.rating) {
-      return countryRating.rating;
-    }
+function people(records: Data[] = []) {
+  const seen = new Set<number>();
+  return records.filter(p => !seen.has(p.id) && !!seen.add(p.id)).map(p => ({ Name: p.name, Photo: image(p.profile_path), TmdbId: p.id, TmdbLink: `https://www.themoviedb.org/person/${p.id}` }));
+}
 
-    // Fall back to US rating
-    if (countryCode !== "US") {
-      const usRating = results.find((r: any) => r.iso_3166_1 === "US");
-      if (usRating?.rating) {
-        return usRating.rating;
-      }
+function providers(data: Data, country: string) {
+  const local = data["watch/providers"]?.results?.[country];
+  const records = (key: string) => (local?.[key] || []).map((p: Data) => ({ name: p.provider_name, country }));
+  return { WatchLinks: local?.link, Stream: records("flatrate"), Buy: records("buy"), Rent: records("rent") };
+}
+
+function trailer(data: Data) {
+  const videos = (data.videos?.results || []).filter((v: Data) => v.site === "YouTube" && v.type === "Trailer");
+  const best = videos.find((v: Data) => v.official) || videos[0];
+  return best?.key ? `https://www.youtube.com/watch?v=${encodeURIComponent(best.key)}` : undefined;
+}
+
+function certification(data: Data, country: string, type: Media) {
+  for (const code of country === "US" ? [country] : [country, "US"]) {
+    if (type === "tv") {
+      const rating = data.content_ratings?.results?.find((r: Data) => r.iso_3166_1 === code)?.rating;
+      if (rating) return rating;
+    } else {
+      const releases = data.release_dates?.results?.find((r: Data) => r.iso_3166_1 === code)?.release_dates || [];
+      const rating = releases.find((r: Data) => r.type === 3 && r.certification)?.certification || releases.find((r: Data) => r.certification)?.certification;
+      if (rating) return rating;
     }
   }
-
   return undefined;
 }
 
-/**
- * Build Coda-schema-ready object for an array of people (actors, directors, etc.)
- * @param people Array of person objects from imdbapi.dev response
- *               New structure: { id: string, displayName: string, primaryImage?: { url: string } }
- */
-export function buildPeopleRecord(
-  people: {
-    id: string;
-    displayName?: string;
-    name?: string; // fallback for old format
-    primaryImage?: { url: string };
-    image?: string; // fallback for old format
-  }[]
-):
-  | {
-      Name: string;
-      ImdbLink: string;
-      ImdbId: string;
-      Photo?: string | undefined;
-    }[]
-  | undefined {
-  // return undefined if there are no people
-  if (!people || !people.length || !Array.isArray(people)) return undefined;
-
-  // Process into People object, supporting both new and old formats
-  return people.map((person) => {
-    // Support both new (displayName) and old (name) formats
-    const name = person.displayName || person.name || "Unknown";
-    // Support both new (primaryImage.url) and old (image) formats
-    const photo = person.primaryImage?.url || person.image;
-
-    return {
-      Name: name,
-      ImdbLink: `https://imdb.com/name/${person.id}/`,
-      ImdbId: person.id,
-      Photo: photo,
-    };
-  });
-}
-
-function age(birthDate: string, deathDate?: string) {
-  const birthDateObject = new Date(birthDate);
-  const endDateObject = deathDate ? new Date(deathDate) : new Date();
-  const age = endDateObject.getFullYear() - birthDateObject.getFullYear();
-  const m = endDateObject.getMonth() - birthDateObject.getMonth();
-  if (
-    m < 0 ||
-    (m === 0 && endDateObject.getDate() < birthDateObject.getDate())
-  ) {
-    return age - 1;
-  }
-  return age;
-}
-
-/* -------------------------------------------------------------------------- */
-/*                       Execute Functions for Formulas                       */
-/* -------------------------------------------------------------------------- */
-
-export async function getMovie(
-  context: coda.ExecutionContext,
-  query: string,
-  countryCode: string = "US"
-) {
-  let imdbId: string;
-
-  // First, let's see if the user supplied an IMDb ID, or a regular search term
-  if (IMDB_TITLE_ID_REGEX.test(query)) {
-    imdbId = query;
-  } else {
-    // Search for the movie using imdbapi.dev
-    const searchResponse = await imdbApiDevFetch(context, "search/titles", {
-      query: query,
-    });
-
-    const searchResults = searchResponse?.body?.titles;
-    if (!searchResults || !searchResults.length) {
-      throw new coda.UserVisibleError("Couldn't find a movie with that title");
-    }
-
-    // Filter for movies (not TV series) and get the first result
-    const movieResult = searchResults.find(
-      (t: any) => t.type === "movie" || t.type === "MOVIE"
-    ) || searchResults[0];
-    imdbId = movieResult?.id;
-  }
-
-  // Now gather details from imdbapi.dev and TMDB in parallel
-  const [imdbDetailResponse, imdbBoxOfficeResponse, tmdbSearchResponse] =
-    await Promise.all([
-      imdbApiDevFetch(context, `titles/${imdbId}`),
-      imdbApiDevFetch(context, `titles/${imdbId}/boxOffice`),
-      searchTmdbByImdbId(context, imdbId),
-    ]);
-
-  const imdbDetails = imdbDetailResponse.body;
-  const boxOffice = imdbBoxOfficeResponse.body;
-  const tmdbDetails = tmdbSearchResponse?.body?.movie_results?.[0];
-
-  // Get streaming providers, trailer, and content rating from TMDB
-  let watchProviders: {
-    stream?: any;
-    buy?: any;
-    rent?: any;
-    link?: any;
-  } | null = {};
-  let trailerLink: string | undefined;
-  let contentRating: string | undefined;
-
-  if (tmdbDetails?.id) {
-    const tmdbId = String(tmdbDetails.id);
-    [watchProviders, trailerLink, contentRating] = await Promise.all([
-      getWatchProviders(context, tmdbId, "movie", countryCode),
-      getTmdbTrailer(context, tmdbId, "movie"),
-      getTmdbContentRating(context, tmdbId, "movie", countryCode),
-    ]);
-  }
-
-  // Convert runtime from seconds to minutes string
-  const runtimeMinutes = imdbDetails?.runtimeSeconds
-    ? Math.round(imdbDetails.runtimeSeconds / 60)
-    : null;
-
+async function getTitle(context: coda.ExecutionContext, query: string, country: string, type: Media) {
+  country = country.trim().toUpperCase();
+  if (country === "UK") country = "GB";
+  if (!/^[A-Z]{2}$/.test(country)) throw new coda.UserVisibleError("Use a two-letter streaming country, such as US, CA, or GB.");
+  const id = await resolve(context, query, type);
+  const append = type === "movie" ? "credits,videos,release_dates,external_ids,watch/providers" : "credits,videos,content_ratings,external_ids,watch/providers";
+  const [data, scores] = await Promise.all([tmdb(context, `${type}/${id}`, { append_to_response: append }), ratings(context, type, id)]);
+  const imdbId = data.imdb_id || data.external_ids?.imdb_id || undefined;
+  const common = {
+    Title: data.title || data.name, TmdbId: id, TmdbLink: `https://www.themoviedb.org/${type}/${id}`,
+    ImdbId: imdbId, ImdbLink: imdbId ? `https://www.imdb.com/title/${imdbId}/` : undefined,
+    HorizontalPoster: image(data.backdrop_path), VerticalPoster: image(data.poster_path),
+    Plot: data.overview || undefined, Description: data.overview || undefined,
+    Starring: people((data.credits?.cast || []).slice(0, 10)), Genres: (data.genres || []).map((g: Data) => g.name),
+    Countries: (data.production_countries || []).map((c: Data) => c.name), Companies: (data.production_companies || []).map((c: Data) => c.name),
+    TrailerLink: trailer(data), ContentRating: certification(data, country, type), ...providers(data, country), ...scores,
+  };
+  if (type === "movie") return {
+    ...common, Year: data.release_date ? Number(year(data.release_date)) : undefined, Runtime: data.runtime ? `${data.runtime} minutes` : undefined,
+    Director: people((data.credits?.crew || []).filter((p: Data) => p.job === "Director")),
+    Writer: people((data.credits?.crew || []).filter((p: Data) => p.department === "Writing")),
+    BoxOffice: { Budget: data.budget || undefined, GlobalGross: data.revenue || undefined },
+  };
+  const start = year(data.first_air_date);
+  const end = data.in_production === false ? year(data.last_air_date) : undefined;
   return {
-    // IMDB-derived fields (from imdbapi.dev)
-    ImdbId: imdbDetails?.id,
-    Title: imdbDetails?.primaryTitle,
-    VerticalPoster: imdbDetails?.primaryImage?.url,
-    Year: imdbDetails?.startYear,
-    Runtime: runtimeMinutes ? `${runtimeMinutes} minutes` : undefined,
-    Director: buildPeopleRecord(imdbDetails?.directors),
-    Writer: buildPeopleRecord(imdbDetails?.writers),
-    Starring: buildPeopleRecord(imdbDetails?.stars),
-    Plot: imdbDetails?.plot,
-    ImdbLink: "https://imdb.com/title/" + imdbId,
-    ImdbRating: imdbDetails?.rating?.aggregateRating,
-    Metacritic: imdbDetails?.metacritic?.score,
-    Genres: imdbDetails?.genres || [],
-    Countries: imdbDetails?.originCountries
-      ? imdbDetails.originCountries.map((c: any) => c.name)
-      : [],
-    BoxOffice: {
-      Budget: boxOffice?.productionBudget?.amount
-        ? Number(boxOffice.productionBudget.amount)
-        : undefined,
-      USAGross: boxOffice?.domesticGross?.amount
-        ? Number(boxOffice.domesticGross.amount)
-        : undefined,
-      GlobalGross: boxOffice?.worldwideGross?.amount
-        ? Number(boxOffice.worldwideGross.amount)
-        : undefined,
-      USAOpeningWeekend: boxOffice?.openingWeekendGross?.gross?.amount
-        ? Number(boxOffice.openingWeekendGross.gross.amount)
-        : undefined,
-    },
-    // TMDB-derived fields
-    HorizontalPoster: tmdbDetails?.backdrop_path
-      ? TMDB_IMAGE_BASE_URL + tmdbDetails.backdrop_path
-      : undefined,
-    TrailerLink: trailerLink,
-    ContentRating: contentRating,
-    WatchLinks: watchProviders?.link,
-    Stream: watchProviders?.stream,
-    Buy: watchProviders?.buy,
-    Rent: watchProviders?.rent,
-    // Description field - use plot as description
-    Description: imdbDetails?.plot,
-    // Companies - need separate API call, leaving empty for now
-    Companies: [],
+    ...common, FullTitle: data.original_name || data.name,
+    Years: { Years: start ? `${start}${end && end !== start ? `–${end}` : end ? "" : "–"}` : "", StartYear: start, EndYear: end },
+    Creators: people(data.created_by || []), Networks: (data.networks || []).map((n: Data) => n.name),
+    Seasons: (data.seasons || []).map((s: Data) => ({ SeasonName: s.name, SeasonNumber: s.season_number, EpisodeCount: s.episode_count, AirDate: s.air_date || undefined })),
+    NextEpisodeAirDate: data.next_episode_to_air?.air_date || undefined, Status: data.status,
   };
 }
 
-export async function getSeries(
-  context: coda.ExecutionContext,
-  query: string,
-  countryCode: string = "US"
-) {
-  let imdbId: string;
+export const getMovie = (context: coda.ExecutionContext, query: string, country = "US") => getTitle(context, query, country, "movie");
+export const getSeries = (context: coda.ExecutionContext, query: string, country = "US") => getTitle(context, query, country, "tv");
 
-  // First, let's see if the user supplied an IMDb ID, or a regular search term
-  if (IMDB_TITLE_ID_REGEX.test(query)) {
-    imdbId = query;
-  } else {
-    // Search for the series using imdbapi.dev
-    const searchResponse = await imdbApiDevFetch(context, "search/titles", {
-      query: query,
-    });
-
-    const searchResults = searchResponse?.body?.titles;
-    if (!searchResults || !searchResults.length) {
-      throw new coda.UserVisibleError(
-        "Couldn't find a TV show with that title"
-      );
-    }
-
-    // Filter for TV series and get the first result
-    const seriesResult = searchResults.find(
-      (t: any) =>
-        t.type === "tvSeries" ||
-        t.type === "TV_SERIES" ||
-        t.type === "tvMiniSeries" ||
-        t.type === "TV_MINI_SERIES"
-    ) || searchResults[0];
-    imdbId = seriesResult?.id;
+export async function getPerson(context: coda.ExecutionContext, input: string) {
+  const query = input.trim();
+  if (!query) throw new coda.UserVisibleError("Enter a person's name or IMDb ID.");
+  const byId = /^nm\d+$/.test(query);
+  const found = await tmdb(context, byId ? `find/${query}` : "search/person", byId ? { external_source: "imdb_id" } : { query });
+  const id = (byId ? found.person_results : found.results)?.[0]?.id;
+  if (!id) throw new coda.UserVisibleError("No matching person found.");
+  const data = await tmdb(context, `person/${id}`, { append_to_response: "external_ids,combined_credits" });
+  const imdbId = data.imdb_id || data.external_ids?.imdb_id;
+  let age: number | undefined;
+  if (data.birthday) {
+    const birth = new Date(data.birthday);
+    const end = data.deathday ? new Date(data.deathday) : new Date();
+    age = end.getUTCFullYear() - birth.getUTCFullYear();
+    if (end.getUTCMonth() < birth.getUTCMonth() || (end.getUTCMonth() === birth.getUTCMonth() && end.getUTCDate() < birth.getUTCDate())) age--;
   }
-
-  // Gather details from imdbapi.dev and TMDB in parallel
-  const [imdbDetailResponse, imdbSeasonsResponse, tmdbSearchResponse] =
-    await Promise.all([
-      imdbApiDevFetch(context, `titles/${imdbId}`),
-      imdbApiDevFetch(context, `titles/${imdbId}/seasons`),
-      searchTmdbByImdbId(context, imdbId),
-    ]);
-
-  const imdbDetails = imdbDetailResponse.body;
-  const imdbSeasons = imdbSeasonsResponse?.body?.seasons || [];
-  const tmdbSearchDetails = tmdbSearchResponse?.body?.tv_results?.[0];
-
-  // Get streaming providers, trailer, content rating, and additional TMDB details
-  let watchProviders: { [key: string]: any } | null = {};
-  let trailerLink: string | undefined;
-  let contentRating: string | undefined;
-  let tmdbDetails: any = {};
-  let seasons: { [key: string]: any }[] = [];
-
-  if (tmdbSearchDetails?.id) {
-    const tmdbId = String(tmdbSearchDetails.id);
-    const [providers, trailer, rating, tmdbDetailResponse] = await Promise.all([
-      getWatchProviders(context, tmdbId, "tv", countryCode),
-      getTmdbTrailer(context, tmdbId, "tv"),
-      getTmdbContentRating(context, tmdbId, "tv", countryCode),
-      tmdbApiFetch(context, "tv", tmdbId),
-    ]);
-    watchProviders = providers;
-    trailerLink = trailer;
-    contentRating = rating;
-    tmdbDetails = tmdbDetailResponse?.body || {};
-  }
-
-  // Build seasons data - prefer TMDB data for air dates, IMDB for episode counts
-  if (tmdbDetails?.seasons) {
-    seasons = tmdbDetails.seasons.map((season: any) => ({
-      SeasonNumber: season.season_number,
-      SeasonName: season.name,
-      EpisodeCount: season.episode_count,
-      AirDate: season.air_date,
-    }));
-  } else if (imdbSeasons.length) {
-    // Fall back to imdbapi.dev seasons data
-    seasons = imdbSeasons.map((season: any) => ({
-      SeasonNumber: parseInt(season.season) || 0,
-      SeasonName: `Season ${season.season}`,
-      EpisodeCount: season.episodeCount,
-      AirDate: undefined,
-    }));
-  }
-
-  // Get creators from credits endpoint if needed
-  let creators: any[] = [];
-  if (imdbDetails?.writers && imdbDetails.writers.length > 0) {
-    // Use writers as creators for now (the /credits endpoint would need pagination)
-    creators = imdbDetails.writers;
-  }
-
-  // Build years object
-  const startYear = imdbDetails?.startYear;
-  const endYear = imdbDetails?.endYear;
-  const yearsString = endYear
-    ? `${startYear}-${endYear}`
-    : startYear
-    ? `${startYear}-`
-    : "";
-
   return {
-    // IMDB-derived fields (from imdbapi.dev)
-    ImdbId: imdbId,
-    Title: imdbDetails?.primaryTitle,
-    FullTitle: imdbDetails?.originalTitle || imdbDetails?.primaryTitle,
-    VerticalPoster: imdbDetails?.primaryImage?.url,
-    Creators: buildPeopleRecord(creators),
-    Years: {
-      StartYear: startYear ? String(startYear) : undefined,
-      EndYear: endYear ? String(endYear) : undefined,
-      Years: yearsString,
-    },
-    ImdbLink: "https://imdb.com/title/" + imdbId,
-    ImdbRating: imdbDetails?.rating?.aggregateRating,
-    Metacritic: imdbDetails?.metacritic?.score,
-    Plot: imdbDetails?.plot,
-    Starring: buildPeopleRecord(imdbDetails?.stars),
-    Genres: imdbDetails?.genres || [],
-    Countries: imdbDetails?.originCountries
-      ? imdbDetails.originCountries.map((c: any) => c.name)
-      : [],
-    // TMDB-derived fields
-    HorizontalPoster: tmdbSearchDetails?.backdrop_path
-      ? TMDB_IMAGE_BASE_URL + tmdbSearchDetails.backdrop_path
-      : undefined,
-    TrailerLink: trailerLink,
-    ContentRating: contentRating,
-    WatchLinks: watchProviders?.link,
-    Stream: watchProviders?.stream,
-    Buy: watchProviders?.buy,
-    Rent: watchProviders?.rent,
-    Seasons: seasons,
-    Networks: tmdbDetails?.networks
-      ? tmdbDetails.networks.map((network: any) => network.name)
-      : [],
-    NextEpisodeAirDate: tmdbDetails?.next_episode_to_air?.air_date,
-    Status: tmdbDetails?.status,
-    // Description field - use plot
-    Description: imdbDetails?.plot,
-    // Companies - leaving empty as it requires separate API call
-    Companies: [],
+    Name: data.name, Photo: image(data.profile_path), Bio: data.biography || undefined, Description: data.known_for_department,
+    Roles: data.known_for_department ? [data.known_for_department] : [], BirthDate: data.birthday || undefined, DeathDate: data.deathday || undefined, Age: age,
+    ImdbId: imdbId, ImdbLink: imdbId ? `https://www.imdb.com/name/${imdbId}/` : undefined,
+    KnownFor: (data.combined_credits?.cast || []).sort((a: Data, b: Data) => (b.vote_count || 0) - (a.vote_count || 0)).slice(0, 4).map((credit: Data) => ({
+      Summary: `${credit.title || credit.name}${credit.character ? ` — ${credit.character}` : ""}`, Title: credit.title || credit.name,
+      Role: credit.character || undefined, Year: year(credit.release_date || credit.first_air_date), Poster: image(credit.poster_path),
+    })),
   };
 }
 
-export async function getPerson(context: coda.ExecutionContext, query: string) {
-  let imdbId: string;
-
-  // First, let's see if the user supplied an IMDb ID, or a regular search term
-  if (IMDB_PERSON_ID_REGEX.test(query)) {
-    imdbId = query;
-  } else {
-    // imdbapi.dev doesn't have a person search endpoint, so we use TMDB
-    const foundImdbId = await searchPersonAndGetImdbId(context, query);
-    if (!foundImdbId) {
-      throw new coda.UserVisibleError("Couldn't find a person with that name");
-    }
-    imdbId = foundImdbId;
-  }
-
-  // Get person details and filmography from imdbapi.dev
-  const [personResponse, filmographyResponse] = await Promise.all([
-    imdbApiDevFetch(context, `names/${imdbId}`),
-    imdbApiDevFetch(context, `names/${imdbId}/filmography`, { pageSize: 10 }),
-  ]);
-
-  const personDetails = personResponse.body;
-  const filmography = filmographyResponse?.body?.credits || [];
-
-  // Build knownFor from filmography
-  let knownFor: { [key: string]: any }[] = [];
-  for (const credit of filmography.slice(0, 4)) {
-    // Limit to 4 items
-    const title = credit.title;
-    if (title) {
-      knownFor.push({
-        Summary: `${credit.category || "Role"}, ${title.primaryTitle} (${title.startYear || ""})`,
-        Title: title.primaryTitle,
-        Role: credit.category,
-        Year: title.startYear ? String(title.startYear) : undefined,
-        ImdbId: title.id,
-        ImdbLink: "https://imdb.com/title/" + title.id,
-        Poster: title.primaryImage?.url,
-      });
-    }
-  }
-
-  // Convert PrecisionDate objects to strings
-  const birthDateStr = personDetails?.birthDate
-    ? formatPrecisionDate(personDetails.birthDate)
-    : undefined;
-  const deathDateStr = personDetails?.deathDate
-    ? formatPrecisionDate(personDetails.deathDate)
-    : undefined;
-
-  // Convert height from cm to string
-  const heightStr = personDetails?.heightCm
-    ? `${Math.floor(personDetails.heightCm / 2.54 / 12)}'${Math.round(
-        (personDetails.heightCm / 2.54) % 12
-      )}" (${personDetails.heightCm} cm)`
-    : undefined;
-
-  return {
-    Name: personDetails?.displayName,
-    Description: knownFor[0]?.Summary,
-    Photo: personDetails?.primaryImage?.url,
-    Roles: personDetails?.primaryProfessions || [],
-    KnownFor: knownFor,
-    Bio: personDetails?.biography,
-    BirthDate: birthDateStr,
-    DeathDate: deathDateStr,
-    Age: birthDateStr ? age(birthDateStr, deathDateStr) : undefined,
-    Height: heightStr,
-    ImdbLink: "https://imdb.com/name/" + imdbId,
-    ImdbId: imdbId,
-  };
-}
-
-/**
- * Format a PrecisionDate object (from imdbapi.dev) to a date string
- */
-function formatPrecisionDate(precisionDate: {
-  year?: number;
-  month?: number;
-  day?: number;
-}): string | undefined {
-  if (!precisionDate.year) return undefined;
-
-  const year = precisionDate.year;
-  const month = precisionDate.month
-    ? String(precisionDate.month).padStart(2, "0")
-    : "01";
-  const day = precisionDate.day
-    ? String(precisionDate.day).padStart(2, "0")
-    : "01";
-
-  return `${year}-${month}-${day}`;
-}
-
-/* -------------------------------------------------------------------------- */
-/*                           Autocomplete Functions                           */
-/* -------------------------------------------------------------------------- */
-
-export async function autocompleteCountryCode(
-  context: coda.ExecutionContext,
-  search: string
-) {
-  let response = await tmdbApiFetch(context, "watch/providers/regions");
-  let results = response.body.results;
-  // Generate an array of autocomplete objects, using the native_name field as the
-  // label and its country code for the value.
-  return coda.autocompleteSearchObjects(
-    search,
-    results,
-    "native_name",
-    "iso_3166_1"
-  );
+export async function autocompleteCountryCode(context: coda.ExecutionContext, search: string) {
+  const data = await tmdb(context, "watch/providers/regions");
+  return coda.simpleAutocomplete(search, (data.results || []).map((r: Data) => ({ display: r.english_name, value: r.iso_3166_1 })));
 }
