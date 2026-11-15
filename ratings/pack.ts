@@ -44,6 +44,7 @@ pack.addFormula({
   parameters: [
     coda.makeParameter({type: coda.ParameterType.StringArray, name: "imdbIds", description: "IMDb title IDs from the Details columns."}),
     coda.makeParameter({type: coda.ParameterType.String, name: "mediaType", description: '"movie" (default) or "show".', optional: true}),
+    coda.makeParameter({type: coda.ParameterType.String, name: "refreshKey", description: "Optional version label to recalculate the shared result after a Pack update. HTTP responses still use their cache.", optional: true}),
   ],
   resultType: coda.ValueType.Array,
   items: RatingsSchema,
