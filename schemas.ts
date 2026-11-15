@@ -86,9 +86,20 @@ export const PersonSchemaMini = coda.makeObjectSchema({
 /*                           Formula Object Schemas                           */
 /* -------------------------------------------------------------------------- */
 
+const titleExtraProperties = {
+  Tagline: {type: coda.ValueType.String},
+  Languages: {type: coda.ValueType.Array, items: {type: coda.ValueType.String}},
+  OriginalLanguage: {type: coda.ValueType.String},
+  Keywords: {type: coda.ValueType.Array, items: {type: coda.ValueType.String}},
+  MoreLikeThis: {type: coda.ValueType.Array, items: {type: coda.ValueType.String}},
+} as const;
+
 export const MovieSchema = coda.makeObjectSchema({
   type: coda.ValueType.Object,
   properties: {
+    ...titleExtraProperties,
+    ReleaseDate: {type: coda.ValueType.String, codaType: coda.ValueHintType.Date},
+    Collection: {type: coda.ValueType.String},
     Title: { type: coda.ValueType.String },
     HorizontalPoster: {
       type: coda.ValueType.String,
@@ -192,6 +203,13 @@ export const MovieSchema = coda.makeObjectSchema({
 export const SeriesSchema = coda.makeObjectSchema({
   type: coda.ValueType.Object,
   properties: {
+    ...titleExtraProperties,
+    TotalEpisodes: {type: coda.ValueType.Number},
+    SeasonCount: {type: coda.ValueType.Number},
+    SeriesType: {type: coda.ValueType.String},
+    LastAirDate: {type: coda.ValueType.String, codaType: coda.ValueHintType.Date},
+    NextEpisodeTitle: {type: coda.ValueType.String},
+    NextEpisodeNumber: {type: coda.ValueType.String},
     Title: { type: coda.ValueType.String },
     FullTitle: { type: coda.ValueType.String },
     HorizontalPoster: {

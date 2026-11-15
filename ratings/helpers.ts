@@ -17,6 +17,11 @@ function sourceUrl(ratings: Data[], sources: string[], host: string) {
   return path.startsWith(`https://${host}/`) ? path : undefined;
 }
 
+function votes(ratings: Data[], source: string) {
+  const count = ratings.find(rating => rating.source === source)?.votes;
+  return Number.isSafeInteger(count) && count >= 0 ? count : undefined;
+}
+
 export function mapRatings(data: Data) {
   const ratings = Array.isArray(data.ratings) ? data.ratings : [];
   const critics = value(ratings, ["tomatoes"], 100);
@@ -27,6 +32,11 @@ export function mapRatings(data: Data) {
     RottenTomatoesLink: sourceUrl(ratings, ["tomatoes", "popcorn", "tomatoesaudience", "audience"], "www.rottentomatoes.com"),
     LetterboxdRating: value(ratings, ["letterboxd"], 5),
     LetterboxdLink: sourceUrl(ratings, ["letterboxd"], "letterboxd.com"),
+    ImdbVotes: votes(ratings, "imdb"), LetterboxdVotes: votes(ratings, "letterboxd"),
+    RottenTomatoesCriticReviews: votes(ratings, "tomatoes"),
+    Awards: typeof data.awards === "string" && data.awards.trim() ? data.awards : undefined,
+    ProviderUpdatedAt: typeof data.updated === "string" && Number.isFinite(Date.parse(data.updated)) ? new Date(data.updated).toISOString() : undefined,
+    DigitalReleaseDate: typeof data.released_digital === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.released_digital) ? data.released_digital : undefined,
     RatingsStatus: ratings.some(r => typeof r.value === "number") ? "Available via MDBList" : "No ratings available",
     RatingsFetchedAt: new Date().toISOString(),
   };

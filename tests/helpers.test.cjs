@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {parseQuery,getMovie}=require('../helpers.ts');
+const {parseQuery,getMovie,getSeries}=require('../helpers.ts');
 const {mapRatings,getRatings}=require('../ratings/helpers.ts');
 
 test('IMDb URL and remake year are parsed without losing identity',()=>{
@@ -67,4 +67,19 @@ test('missing IDs do not request data and mismatched results never supply scores
  await assert.rejects(()=>getRatings(empty,'Inception'),/IMDb title ID/);
  const wrong=context(async()=>({ids:{imdb:'tt0087182'},ratings:[{source:'imdb',value:6.2}]}));
  const r=await getRatings(wrong,'tt1160419');assert.equal(r.ImdbRating,undefined);assert.match(r.RatingsStatus,/different title/);
+});
+
+test('extra discovery and TV commitment fields use the same two TMDB requests',async()=>{
+ const calls=[];const ctx=context(async u=>{
+  calls.push(u);
+  if(u.pathname.endsWith('/search/tv'))return {results:[{id:87108,name:'Chernobyl',first_air_date:'2019-05-06'}]};
+  assert.ok(u.searchParams.get('append_to_response').includes('keywords,recommendations'));
+  return {name:'Chernobyl',first_air_date:'2019-05-06',last_air_date:'2019-06-03',in_production:false,status:'Ended',type:'Miniseries',number_of_episodes:5,number_of_seasons:1,spoken_languages:[{english_name:'English'}],keywords:{results:[{name:'based on true story'}]},recommendations:{results:[{name:'Toxic Town',first_air_date:'2025-02-27'}]},next_episode_to_air:null};
+ });
+ const r=await getSeries(ctx,'Chernobyl');assert.equal(calls.length,2);assert.equal(r.TotalEpisodes,5);assert.equal(r.SeasonCount,1);assert.equal(r.Status,'Ended');assert.equal(r.SeriesType,'Miniseries');assert.equal(r.NextEpisodeNumber,undefined);assert.deepEqual(r.Languages,['English']);assert.deepEqual(r.Keywords,['based on true story']);assert.deepEqual(r.MoreLikeThis,['Toxic Town (2025)']);
+});
+test('rating counts and provider timestamps preserve missing and invalid values',()=>{
+ const r=mapRatings({ratings:[{source:'imdb',votes:180169},{source:'letterboxd',votes:1910587},{source:'tomatoes',votes:317}],updated:'2026-11-13T22:07:32Z',released_digital:'2023-08-22',awards:'Two Oscar nominations'});
+ assert.equal(r.ImdbVotes,180169);assert.equal(r.LetterboxdVotes,1910587);assert.equal(r.RottenTomatoesCriticReviews,317);assert.equal(r.ProviderUpdatedAt,'2026-11-13T22:07:32.000Z');assert.equal(r.DigitalReleaseDate,'2023-08-22');assert.equal(r.Awards,'Two Oscar nominations');
+ const bad=mapRatings({ratings:[{source:'imdb',votes:-1},{source:'letterboxd',votes:'500+'}],updated:'unknown',awards:null});assert.equal(bad.ImdbVotes,undefined);assert.equal(bad.LetterboxdVotes,undefined);assert.equal(bad.ProviderUpdatedAt,undefined);assert.equal(bad.Awards,undefined);
 });

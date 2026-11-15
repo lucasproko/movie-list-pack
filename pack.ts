@@ -46,6 +46,7 @@ pack.addColumnFormat({
 pack.addFormula({
   name: "Movie",
   description: "Search for a movie title to retrieve all its details",
+  cacheTtlSecs: 86400,
   parameters: [
     coda.makeParameter({
       type: coda.ParameterType.String,
@@ -73,6 +74,7 @@ pack.addFormula({
 pack.addFormula({
   name: "Series",
   description: "Search for a TV series title to retrieve all its details",
+  cacheTtlSecs: 86400,
   parameters: [
     coda.makeParameter({
       type: coda.ParameterType.String,

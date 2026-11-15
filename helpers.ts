@@ -82,7 +82,7 @@ async function getTitle(context: coda.ExecutionContext, query: string, country: 
   if (country === "UK") country = "GB";
   if (!/^[A-Z]{2}$/.test(country)) throw new coda.UserVisibleError("Use a two-letter streaming country, such as US, CA, or GB.");
   const id = await resolve(context, query, type);
-  const append = type === "movie" ? "credits,videos,release_dates,external_ids,watch/providers" : "credits,videos,content_ratings,external_ids,watch/providers";
+  const append = type === "movie" ? "credits,videos,release_dates,external_ids,watch/providers,keywords,recommendations" : "credits,videos,content_ratings,external_ids,watch/providers,keywords,recommendations";
   const data = await tmdb(context, `${type}/${id}`, { append_to_response: append });
   const imdbId = data.imdb_id || data.external_ids?.imdb_id || undefined;
   const common = {
@@ -93,12 +93,21 @@ async function getTitle(context: coda.ExecutionContext, query: string, country: 
     Starring: people((data.credits?.cast || []).slice(0, 10)), Genres: (data.genres || []).map((g: Data) => g.name),
     Countries: (data.production_countries || []).map((c: Data) => c.name), Companies: (data.production_companies || []).map((c: Data) => c.name),
     TrailerLink: trailer(data), ContentRating: certification(data, country, type), ...providers(data, country),
+    Tagline: data.tagline || undefined,
+    Languages: (data.spoken_languages || []).map((language: Data) => language.english_name || language.name).filter(Boolean),
+    OriginalLanguage: data.original_language || undefined,
+    Keywords: (data.keywords?.keywords || data.keywords?.results || []).map((keyword: Data) => keyword.name),
+    MoreLikeThis: (data.recommendations?.results || []).slice(0, 5).map((title: Data) => {
+      const released = year(title.release_date || title.first_air_date);
+      return `${title.title || title.name}${released ? ` (${released})` : ""}`;
+    }),
   };
   if (type === "movie") return {
     ...common, Year: data.release_date ? Number(year(data.release_date)) : undefined, Runtime: data.runtime ? `${data.runtime} minutes` : undefined,
     Director: people((data.credits?.crew || []).filter((p: Data) => p.job === "Director")),
     Writer: people((data.credits?.crew || []).filter((p: Data) => p.department === "Writing")),
     BoxOffice: { Budget: data.budget || undefined, GlobalGross: data.revenue || undefined },
+    ReleaseDate: data.release_date || undefined, Collection: data.belongs_to_collection?.name || undefined,
   };
   const start = year(data.first_air_date);
   const end = data.in_production === false ? year(data.last_air_date) : undefined;
@@ -108,6 +117,10 @@ async function getTitle(context: coda.ExecutionContext, query: string, country: 
     Creators: people(data.created_by || []), Networks: (data.networks || []).map((n: Data) => n.name),
     Seasons: (data.seasons || []).map((s: Data) => ({ SeasonName: s.name, SeasonNumber: s.season_number, EpisodeCount: s.episode_count, AirDate: s.air_date || undefined })),
     NextEpisodeAirDate: data.next_episode_to_air?.air_date || undefined, Status: data.status,
+    TotalEpisodes: data.number_of_episodes, SeasonCount: data.number_of_seasons,
+    SeriesType: data.type || undefined, LastAirDate: data.last_air_date || undefined,
+    NextEpisodeTitle: data.next_episode_to_air?.name || undefined,
+    NextEpisodeNumber: data.next_episode_to_air ? `S${data.next_episode_to_air.season_number}E${data.next_episode_to_air.episode_number}` : undefined,
   };
 }
 

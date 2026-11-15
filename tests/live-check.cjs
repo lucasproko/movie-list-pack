@@ -10,8 +10,9 @@ const cases=[['Movie','tt1375666','tt1375666'],['Movie','Dune (2021)','tt1160419
   if(formula==='Person'){assert.equal(result.Name,'Tom Hanks');console.log(JSON.stringify({formula,input,name:result.Name,id}));continue;}
   const score=await executeFormulaFromPackDef(ratings,'Ratings',[result.ImdbId,formula==='Series'?'show':'movie'],undefined,undefined,{useRealFetcher:true,manifestPath:'ratings/pack.ts'});
   assert.equal(score.ImdbId,result.ImdbId);assert.ok(score.ImdbRating>0);assert.ok(score.RottenTomatoesAudience>0);
+  assert.ok(result.Languages.length);assert.ok(Array.isArray(result.Keywords));assert.ok(Array.isArray(result.MoreLikeThis));assert.ok(score.ImdbVotes>0);assert.ok(score.ProviderUpdatedAt);
   if(formula==='Movie'){assert.ok(score.LetterboxdRating>0&&score.LetterboxdRating<=5);assert.ok(score.LetterboxdLink);}
-  if(formula==='Series')assert.ok(result.Seasons.length);
+  if(formula==='Series'){assert.ok(result.Seasons.length);assert.ok(result.TotalEpisodes>0);assert.ok(result.SeasonCount>0);}
   console.log(JSON.stringify({formula,input,title:result.Title,id,imdb:score.ImdbRating,critics:score.RottenTomatoesCritics,audience:score.RottenTomatoesAudience,letterboxd:score.LetterboxdRating,ratingsStatus:score.RatingsStatus}));
  }
 })().catch(error=>{let message=String(error?.stack||error);for(const key of secrets)message=message.split(key).join('[redacted]');console.error(message.slice(0,1800));process.exitCode=1;});

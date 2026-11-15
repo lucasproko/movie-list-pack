@@ -19,6 +19,12 @@ export const RatingsSchema = coda.makeObjectSchema({
     RottenTomatoesLink: {type: coda.ValueType.String, codaType: coda.ValueHintType.Url},
     LetterboxdRating: {type: coda.ValueType.Number},
     LetterboxdLink: {type: coda.ValueType.String, codaType: coda.ValueHintType.Url},
+    ImdbVotes: {type: coda.ValueType.Number},
+    LetterboxdVotes: {type: coda.ValueType.Number},
+    RottenTomatoesCriticReviews: {type: coda.ValueType.Number},
+    Awards: {type: coda.ValueType.String},
+    ProviderUpdatedAt: {type: coda.ValueType.String, codaType: coda.ValueHintType.DateTime},
+    DigitalReleaseDate: {type: coda.ValueType.String, codaType: coda.ValueHintType.Date},
     RatingsStatus: {type: coda.ValueType.String},
     RatingsFetchedAt: {type: coda.ValueType.String, codaType: coda.ValueHintType.DateTime},
   },
@@ -31,6 +37,7 @@ export const RatingsSchema = coda.makeObjectSchema({
 
 pack.addFormula({
   name: "Ratings",
+  cacheTtlSecs: 86400,
   description: "Get IMDb, Metacritic, Rotten Tomatoes critics and audience, and Letterboxd ratings by IMDb ID.",
   parameters: [
     coda.makeParameter({type: coda.ParameterType.String, name: "imdbId", description: "IMDb ID or URL. Use the ImdbId from Movie Details."}),
