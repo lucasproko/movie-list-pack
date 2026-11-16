@@ -2,12 +2,13 @@
 
 A personal fork of [ontl/coda-pack-imdb](https://github.com/ontl/coda-pack-imdb), replacing its unavailable IMDb API dependency with TMDB metadata and MDBList ratings.
 
-Two private Packs keep each provider on its own network domain with native API-key authentication:
+Three private Packs keep each provider on its own network domain with native API-key authentication:
 
 | Pack | Entry point | Formulas | Provider |
 | --- | --- | --- | --- |
 | [Movie Details](https://coda.io/p/80128) | `pack.ts` | `Movie`, `Series`, `Person` | TMDB |
 | [Movie Ratings](https://coda.io/p/80132) | `ratings/pack.ts` | `Ratings`, `RatingsMany`, `SavedRatings`, `SavedSeasonRatings` | MDBList; local IMDb snapshots |
+| [Episode Ratings](https://coda.io/p/80264) | `seasons/pack.ts` | `SeasonRatings` | OMDb; personal IMDb snapshot fallback |
 
 `Movie(titleOrImdbId, country?)`, `Series(titleOrImdbId, country?)`, and `Person(nameOrImdbId)` retain the original formula names. Use an IMDb ID or include a release year to distinguish remakes. Streaming defaults to US; UK is accepted as an alias for GB.
 
@@ -24,6 +25,12 @@ Counts include `RottenTomatoesAudienceVotes` and `MetacriticReviews`. Rotten Tom
 ## Development
 
 ### Personal IMDb season scores
+
+The primary on-demand formula is `[Episode Ratings]::SeasonRatings(currentImdbId, seasonNumbers, savedSnapshot?)`. It makes one OMDb request per unique regular season, with 24-hour HTTP and formula caches. Put its object result in one hidden helper column, then display `.Seasons.Label` and `.LatestSeasonRating` in the visible columns. Pass `thisRow.Details.ImdbId`, `thisRow.Details.Seasons.SeasonNumber`, and `thisRow.[IMDb season data]`. Changes to those inputs cause Coda to recalculate; merely reopening the doc does not guarantee a refresh. Choose the Pack's manual refresh policy for on-demand operation. Coda can also recalculate for maintenance, so caches protect the API allowance.
+
+OMDb episode ratings use equal weight per episode. Specials, duplicate episodes, future-dated episodes, and missing/invalid ratings are excluded. Live season results with fewer rated episodes than a matching imported snapshot retain the more complete imported score. API limits/outages also use that fallback, with source counts and any problem reported in the helper object's `Status`. Imported fallback data is only used for the same IMDb ID. OMDb season responses do not provide episode vote counts, so no extra per-episode requests are made to fetch them. This Pack uses its own OMDb key and never calls MDBList or depends on a Mac job.
+
+The local importer below is optional preparation/recovery tooling; its daily Mac schedule was disabled in favor of on-demand Pack formulas.
 
 `scripts/imdb_seasons.py` streams IMDb's official daily `title.episode` and `title.ratings` datasets, joins episodes to series by IMDb ID, and calculates the arithmetic mean of rated episodes in each regular season. Each episode has equal weight. Unrated episodes, season zero, and unnumbered episodes are excluded. The result retains rated/known episode counts and median/minimum episode vote counts; episode votes are not treated as unique season voters. A partially rated season is labeled with its coverage. These are calculated episode averages, not official IMDb season ratings.
 
@@ -43,13 +50,13 @@ python3 scripts/imdb_seasons.py --rows-file /private/path/rows.json --output /pr
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
-For scheduled refresh, use `--sync --config /private/path/imdb-seasons.local.json --output /private/path/seasons.json`. The private config contains `docId`, `tableId`, `dataColumnId`, `idColumn` (the formula column name), and `tokenFile` (a private file containing a doc-scoped Coda API token). `dataColumnName` defaults to `IMDb season data`. The importer reads the current row identities on every run, only updates that data column, rechecks identity before writing by row ID, and backs off on Coda rate limits. Unchanged scores retain their snapshots to avoid unnecessary recalculation. Its output/log reports zero MDBList requests. Dataset downloads are cached outside the repo and checked once per UTC day. Run it daily from the user's Mac; the Mac must be awake and online for the refresh to complete.
+For a manual bulk refresh, use `--sync --config /private/path/imdb-seasons.local.json --output /private/path/seasons.json`. The private config contains `docId`, `tableId`, `dataColumnId`, `idColumn` (the formula column name), and `tokenFile` (a private file containing a doc-scoped Coda API token). `dataColumnName` defaults to `IMDb season data`. The importer reads the current row identities, only updates that data column, rechecks identity before writing by row ID, and backs off on Coda rate limits. Unchanged scores retain their snapshots to avoid unnecessary recalculation. Its output/log reports zero MDBList requests. Dataset downloads are cached outside the repo and checked at most once per UTC day when the tool runs.
 
 IMDb data and private watchlist exports must stay in personal storage, outside the public repo. Source: [IMDb non-commercial datasets](https://data.imdb.com/non-commercial-datasets/). Information courtesy of IMDb (https://www.imdb.com). Used with permission.
 
 - `npm ci`
 - `npm test` — deterministic regressions for matching, rating scales, missing values, and provider failures.
-- `npm run validate` — validates both Pack schemas.
+- `npm run validate` — validates all three Pack schemas.
 - `npm run typecheck`
 - `npm run test:live` — authenticated SDK checks against public sample titles. Requires local system credentials for both Packs.
 

@@ -1,7 +1,7 @@
 {
   "scripts": {
-    "test": "node -r ts-node/register/transpile-only --test tests/helpers.test.cjs",
-    "validate": "coda validate pack.ts && coda validate ratings/pack.ts",
+    "test": "node -r ts-node/register/transpile-only --test tests/*.test.cjs",
+    "validate": "coda validate pack.ts && coda validate ratings/pack.ts && coda validate seasons/pack.ts",
     "test:live": "node -r ts-node/register/transpile-only tests/live-check.cjs",
     "typecheck": "tsc --noEmit"
   },
