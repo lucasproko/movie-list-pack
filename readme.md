@@ -7,7 +7,7 @@ Two private Packs keep each provider on its own network domain with native API-k
 | Pack | Entry point | Formulas | Provider |
 | --- | --- | --- | --- |
 | [Movie Details](https://coda.io/p/80128) | `pack.ts` | `Movie`, `Series`, `Person` | TMDB |
-| [Movie Ratings](https://coda.io/p/80132) | `ratings/pack.ts` | `Ratings`, `RatingsMany`, `SavedRatings` | MDBList |
+| [Movie Ratings](https://coda.io/p/80132) | `ratings/pack.ts` | `Ratings`, `RatingsMany`, `SavedRatings`, `SavedSeasonRatings` | MDBList; local IMDb snapshots |
 
 `Movie(titleOrImdbId, country?)`, `Series(titleOrImdbId, country?)`, and `Person(nameOrImdbId)` retain the original formula names. Use an IMDb ID or include a release year to distinguish remakes. Streaming defaults to US; UK is accepted as an alias for GB.
 
@@ -22,6 +22,30 @@ The same detail response also supplies trailers, languages, keywords, recommenda
 Counts include `RottenTomatoesAudienceVotes` and `MetacriticReviews`. Rotten Tomatoes audience counts can be lower bounds (for example 250,000+ is returned as 250,000), so they are conservative confidence inputs rather than exact totals. Missing counts stay blank. TV `SeasonRatings` includes scored regular seasons whose first air date has passed, with `Label`, `Rating`, `SeasonNumber`, `EpisodeCount`, and `AirDate`. `LatestSeasonRating` and `LatestSeasonNumber` identify the latest of those seasons. Scores are TMDB user averages on a 0–10 scale, not Rotten Tomatoes season scores. The existing detail request supplies them; no per-season requests are made. Season vote counts are unavailable in that response.
 
 ## Development
+
+### Personal IMDb season scores
+
+`scripts/imdb_seasons.py` streams IMDb's official daily `title.episode` and `title.ratings` datasets, joins episodes to series by IMDb ID, and calculates the arithmetic mean of rated episodes in each regular season. Each episode has equal weight. Unrated episodes, season zero, and unnumbered episodes are excluded. The result retains rated/known episode counts and median/minimum episode vote counts; episode votes are not treated as unique season voters. A partially rated season is labeled with its coverage. These are calculated episode averages, not official IMDb season ratings.
+
+`SavedSeasonRatings(snapshotJson, currentImdbId)` reads the imported JSON with no network calls. A blank snapshot or changed title returns no scores, preventing stale ratings from following an edited row. The existing TMDB `Details.SeasonRatings` remains available separately, but should not be used for the IMDb columns.
+
+Keep an editable, hidden text column `IMDb season data` and a hidden formula column `IMDb season ID = thisRow.Details.ImdbId` in the TV table. The visible formulas are:
+
+```coda
+[Movie Ratings]::SavedSeasonRatings(thisRow.[IMDb season data], thisRow.Details.ImdbId).Seasons.Label
+[Movie Ratings]::SavedSeasonRatings(thisRow.[IMDb season data], thisRow.Details.ImdbId).LatestSeasonRating
+```
+
+For a current-row export with `id`, `name`, and `imdbId`, prepare snapshots without writing:
+
+```sh
+python3 scripts/imdb_seasons.py --rows-file /private/path/rows.json --output /private/path/seasons.json
+python3 -m unittest discover -s tests -p 'test_*.py'
+```
+
+For scheduled refresh, use `--sync --config /private/path/imdb-seasons.local.json --output /private/path/seasons.json`. The private config contains `docId`, `tableId`, `dataColumnId`, `idColumn` (the formula column name), and `tokenFile` (a private file containing a doc-scoped Coda API token). `dataColumnName` defaults to `IMDb season data`. The importer reads the current row identities on every run, only updates that data column, rechecks identity before writing by row ID, and backs off on Coda rate limits. Unchanged scores retain their snapshots to avoid unnecessary recalculation. Its output/log reports zero MDBList requests. Dataset downloads are cached outside the repo and checked once per UTC day. Run it daily from the user's Mac; the Mac must be awake and online for the refresh to complete.
+
+IMDb data and private watchlist exports must stay in personal storage, outside the public repo. Source: [IMDb non-commercial datasets](https://data.imdb.com/non-commercial-datasets/). Information courtesy of IMDb (https://www.imdb.com). Used with permission.
 
 - `npm ci`
 - `npm test` — deterministic regressions for matching, rating scales, missing values, and provider failures.

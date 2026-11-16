@@ -2,6 +2,21 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {parseQuery,getMovie,getSeries}=require('../helpers.ts');
 const {mapRatings,getRatings,getRatingsMany,getSavedRatings,getRatingsWithFallback}=require('../ratings/helpers.ts');
+const {getSavedSeasons}=require('../ratings/seasons.ts');
+
+test('IMDb season snapshots never leak a previous title and label partial coverage',()=>{
+ const json=JSON.stringify({ImdbId:'tt100',Seasons:[
+  {SeasonNumber:2,Rating:8.25,RatedEpisodes:2,KnownEpisodes:8,MedianEpisodeVotes:100},
+  {SeasonNumber:1,Rating:7.5,RatedEpisodes:8,KnownEpisodes:8,MedianEpisodeVotes:200},
+  {SeasonNumber:0,Rating:9,RatedEpisodes:1,KnownEpisodes:1,MedianEpisodeVotes:100},
+  {SeasonNumber:3,Rating:15,RatedEpisodes:1,KnownEpisodes:1,MedianEpisodeVotes:100}
+ ]});
+ const got=getSavedSeasons(json,'tt100');
+ assert.deepEqual(got.Seasons.map(s=>s.Label),['S1 · 7.5','S2 · 8.3 (2/8 rated)']);
+ assert.equal(got.LatestSeasonRating,8.25);
+ assert.deepEqual(getSavedSeasons(json,'tt200').Seasons,[]);
+ assert.deepEqual(getSavedSeasons('','tt100').Seasons,[]);
+});
 
 test('IMDb URL and remake year are parsed without losing identity',()=>{
  assert.equal(parseQuery(' https://www.imdb.com/title/tt1160419/?ref_=x ').imdbId,'tt1160419');

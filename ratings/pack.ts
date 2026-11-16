@@ -1,9 +1,37 @@
 import * as coda from "@codahq/packs-sdk";
 import {getRatings, getRatingsWithFallback, getSavedRatings} from "./helpers";
+import {getSavedSeasons} from "./seasons";
 
 export const pack = coda.newPack();
 pack.addNetworkDomain("mdblist.com");
 pack.setSystemAuthentication({ type: coda.AuthenticationType.QueryParamToken, paramName: "apikey" });
+
+pack.addFormula({
+  name: "SavedSeasonRatings",
+  description: "Read personal IMDb season averages imported from IMDb's daily datasets, without API calls.",
+  cacheTtlSecs: 86400,
+  parameters: [
+    coda.makeParameter({type: coda.ParameterType.String, name: "snapshotJson", description: "Imported IMDb season JSON from this row."}),
+    coda.makeParameter({type: coda.ParameterType.String, name: "imdbId", description: "The current Details IMDb ID, to prevent scores surviving a title change."}),
+  ],
+  resultType: coda.ValueType.Object,
+  schema: coda.makeObjectSchema({
+    properties: {
+      ImdbId: {type: coda.ValueType.String}, Status: {type: coda.ValueType.String},
+      UpdatedAt: {type: coda.ValueType.String, codaType: coda.ValueHintType.DateTime},
+      LatestSeasonRating: {type: coda.ValueType.Number}, LatestSeasonNumber: {type: coda.ValueType.Number},
+      Seasons: {type: coda.ValueType.Array, items: coda.makeObjectSchema({
+        properties: {
+          SeasonNumber: {type: coda.ValueType.Number}, Rating: {type: coda.ValueType.Number},
+          RatedEpisodes: {type: coda.ValueType.Number}, KnownEpisodes: {type: coda.ValueType.Number},
+          MedianEpisodeVotes: {type: coda.ValueType.Number}, Label: {type: coda.ValueType.String},
+        }, displayProperty: "Label", idProperty: "SeasonNumber",
+      })},
+    }, displayProperty: "Status", idProperty: "ImdbId",
+    attribution: [{type: coda.AttributionNodeType.Text, text: "Information courtesy of IMDb (https://www.imdb.com). Used with permission. Season scores are calculated means of IMDb episode ratings."}],
+  }),
+  execute: async ([snapshot, imdbId]) => getSavedSeasons(snapshot, imdbId),
+});
 
 export const RatingsSchema = coda.makeObjectSchema({
   properties: {

@@ -8,3 +8,6 @@ _upload_build
 
 .env*
 .test-build
+__pycache__/
+*.local.json
+.imdb-season-cache/
