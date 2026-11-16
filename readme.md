@@ -36,11 +36,12 @@ The local importer below is optional preparation/recovery tooling; its daily Mac
 
 `SavedSeasonRatings(snapshotJson, currentImdbId)` reads the imported JSON with no network calls. A blank snapshot or changed title returns no scores, preventing stale ratings from following an edited row. The existing TMDB `Details.SeasonRatings` remains available separately, but should not be used for the IMDb columns.
 
-Keep an editable, hidden text column `IMDb season data` and a hidden formula column `IMDb season ID = thisRow.Details.ImdbId` in the TV table. The visible formulas are:
+Keep an editable, hidden text column `IMDb season data` and a hidden formula column `IMDb season ID = thisRow.Details.ImdbId` in the TV table. The current hidden `IMDb seasons` helper and visible formulas are:
 
 ```coda
-[Movie Ratings]::SavedSeasonRatings(thisRow.[IMDb season data], thisRow.Details.ImdbId).Seasons.Label
-[Movie Ratings]::SavedSeasonRatings(thisRow.[IMDb season data], thisRow.Details.ImdbId).LatestSeasonRating
+[Episode Ratings]::SeasonRatings(thisRow.Details.ImdbId, thisRow.Details.Seasons.SeasonNumber, thisRow.[IMDb season data])
+thisRow.[IMDb seasons].Seasons.Label
+thisRow.[IMDb seasons].LatestSeasonRating
 ```
 
 For a current-row export with `id`, `name`, and `imdbId`, prepare snapshots without writing:

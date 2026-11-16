@@ -2,20 +2,23 @@
 
 The combined Pack required approval for multiple network domains and Custom authentication. On November 14, 2026, we replaced that configuration with two single-domain Packs using native query-parameter API-key authentication. Both uploads were accepted without those approvals.
 
+On November 15, a third single-domain Pack added on-demand IMDb episode averages through OMDb. The daily Mac import job is disabled.
+
 | Pack | Version | Domain | System credential |
 | --- | --- | --- | --- |
-| [Movie Details, 80128](https://coda.io/p/80128) | 3 | `themoviedb.org` | TMDB API key, `api_key` |
-| [Movie Ratings, 80132](https://coda.io/p/80132) | 2 | `mdblist.com` | MDBList API key, `apikey` |
+| [Movie Details, 80128](https://coda.io/p/80128) | 4 | `themoviedb.org` | TMDB API key, `api_key` |
+| [Movie Ratings, 80132](https://coda.io/p/80132) | 9 | `mdblist.com` | MDBList API key, `apikey` |
+| [Episode Ratings, 80264](https://coda.io/p/80264) | 1 | `omdbapi.com` | Activated OMDb API key, `apikey` |
 
-Both Packs belong to the owner's personal workspace. Configure credentials in Pack Studio's system connection settings; no API keys belong in source or approval attachments.
+All three Packs belong to the owner's personal workspace. Configure credentials in Pack Studio's system connection settings; no API keys belong in source or approval attachments.
 
 ## Uploading
 
 1. Install dependencies with `npm ci`.
-2. Authenticate the Coda CLI and associate `pack.ts` with Movie Details and `ratings/pack.ts` with Movie Ratings. Account and Pack association files are ignored.
+2. Authenticate the Coda CLI and associate `pack.ts` with Movie Details, `ratings/pack.ts` with Movie Ratings, and `seasons/pack.ts` with Episode Ratings. Account and Pack association files are ignored.
 3. Run `npm test`, `npm run typecheck`, and `npm run validate`.
-4. Upload each entry point: `npx coda upload pack.ts` and `npx coda upload ratings/pack.ts`.
-5. Configure the corresponding native system API key on each Pack, then install both Packs in a test doc.
+4. Upload each entry point: `npx coda upload pack.ts`, `npx coda upload ratings/pack.ts`, and `npx coda upload seasons/pack.ts`.
+5. Configure the corresponding native system API key on each Pack, then install the Packs in a test doc. OMDb keys require email activation before use.
 
 ## Using the Packs together
 
@@ -28,6 +31,18 @@ For a movie table:
 3. Expose fields such as `thisRow.Ratings.RottenTomatoesAudience` and `thisRow.Ratings.LetterboxdRating` as display columns. RT values use 0–100, so append a percent sign or divide by 100 before applying Coda percentage formatting.
 
 For TV use `Series(...)` in Details and `Ratings(thisRow.Details.ImdbId, "show")` in Ratings. Missing scores stay blank; check `RatingsStatus` for provider failures. The personal TV table omits Letterboxd columns. Use one Details helper and one Ratings helper per row, then project their fields into display columns.
+
+For on-demand season scores, create one hidden `IMDb seasons` formula column:
+
+```coda
+[Episode Ratings]::SeasonRatings(thisRow.Details.ImdbId, thisRow.Details.Seasons.SeasonNumber, thisRow.[IMDb season data])
+```
+
+The multi-select `IMDb season scores` column reads `thisRow.[IMDb seasons].Seasons.Label`. The numeric `Latest IMDb season score` reads `thisRow.[IMDb seasons].LatestSeasonRating`, formatted to one decimal place. The helper's `Status`, `LiveSeasons`, `SavedSeasons`, and individual season `Source` distinguish API data from imported fallback. Keep the Pack's refresh policy set to Manually: Coda still recalculates when the formula inputs change, with 24-hour caches. No Mac process or daily schedule is needed.
+
+The first integration check found live OMDb coverage for 184 of the 406 imported seasons; 222 retained more complete imported IMDb data. These fallback snapshots do not update themselves. A new title without a backup displays only rated episodes available from OMDb, marking partial coverage or leaving scores empty when none are available. Live tests included A Gentleman in Moscow (import retained because OMDb rated only 2/8 episodes), 3 Body Problem (8/8 live episodes), and The Queen's Gambit (7/7 live episodes with no backup).
+
+Twenty-three deterministic tests, TypeScript, and all three Pack schemas pass. The original movie/TV aggregate formulas are independent of season scores.
 
 ## Verification on November 14, 2026
 
